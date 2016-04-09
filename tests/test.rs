@@ -38,13 +38,13 @@ fn test() {
 
     for _ in 0..2 {
         baal::init(setting.clone());
-        baal::music_play(0);
+        baal::music::play(0);
 
         for i in 0..7 {
             let p = (i*20) as f64;
-            baal::effect_play(0,&[p,0.,0.]);
+            baal::effect::play(0,&[p,0.,0.]);
             thread::sleep(Duration::from_millis(1));
-            baal::effect_play(1,&[p,0.,0.]);
+            baal::effect::play(1,&[p,0.,0.]);
             thread::sleep(Duration::from_millis(1));
         }
 

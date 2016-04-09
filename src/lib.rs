@@ -112,30 +112,30 @@ pub struct Setting {
 impl Setting {
     /// import setting from yaml:
     ///
-    ///```
-    ///---
-    ///channels: 1
-    ///sample_rate: 44100.
-    ///frames_per_buffer: 64
+    /// ```yaml
+    /// ---
+    /// channels: 1
+    /// sample_rate: 44100.
+    /// frames_per_buffer: 64
     ///
-    ///effect_dir: assets/effects
-    ///music_dir: assets/musics
+    /// effect_dir: assets/effects
+    /// music_dir: assets/musics
     ///
-    ///global_volume: 0.5
-    ///music_volume: 0.8
-    ///effect_volume: 0.3
+    /// global_volume: 0.5
+    /// music_volume: 0.8
+    /// effect_volume: 0.3
     ///
-    ///distance_model: [Pow2,10.,110.]
-    ///music_loop: true
+    /// distance_model: [Pow2,10.,110.]
+    /// music_loop: true
     ///
-    ///effect:
-    ///    - [shoot.ogg,10]
-    ///    - [hit.ogg,10]
+    /// effect:
+    ///     - [shoot.ogg,10]
+    ///     - [hit.ogg,10]
     ///
-    ///music:
-    ///    - village.ogg
-    ///...
-    ///```
+    /// music:
+    ///     - village.ogg
+    /// ...
+    /// ```
     ///
     pub fn from_yaml(code: &Yaml) -> Self {
         let hash = code.as_hash().expect("config must be an associative array");
@@ -318,6 +318,18 @@ pub mod effect {
             }
         }
     }
+
+    #[test]
+    fn test_distance() {
+        let origin = [0.,0.,0.];
+        let d = DistanceModel::Linear(10.,110.);
+        assert_eq!(d.distance(&origin,&origin), 1.);
+        assert_eq!(d.distance(&origin,&[10.,0.,0.]), 1.);
+        assert_eq!(d.distance(&origin,&[60.,0.,0.]), 0.5);
+        assert!(d.distance(&origin,&[100.,0.,0.]) - 0.1 < 0.00001);
+        assert_eq!(d.distance(&origin,&[150.,0.,0.]), 0.);
+    }
+
 }
 
 pub mod music {
@@ -328,26 +340,26 @@ pub mod music {
 
     /// set the volume of the music
     /// the actual music volume is `music_volume * global_volume`
-    pub fn music_set_volume(v: f32) {
+    pub fn set_volume(v: f32) {
         let mut state = STATE.lock().unwrap();
         state.music_volume = v;
         state.sender.send(Msg::SetMusicVolume(state.music_volume*state.global_volume)).unwrap();
     }
 
     /// get the volume of the music
-    pub fn music_volume() -> f32 {
+    pub fn volume() -> f32 {
         let state = STATE.lock().unwrap();
         state.music_volume
     }
 
     /// seek the music to a given frame
-    pub fn music_seek(frame: i64) {
+    pub fn seek(frame: i64) {
         let state = STATE.lock().unwrap();
         state.sender.send(Msg::SeekMusic(frame)).unwrap();
     }
 
     /// play the music
-    pub fn music_play(music: usize) {
+    pub fn play(music: usize) {
         let mut state = STATE.lock().unwrap();
         state.music_status.pause = false;
         state.music_status.id = Some(music);
@@ -356,21 +368,21 @@ pub mod music {
     }
 
     /// pause the music
-    pub fn music_pause() {
+    pub fn pause() {
         let mut state = STATE.lock().unwrap();
         state.music_status.pause = true;
         state.sender.send(Msg::PauseMusic).unwrap();
     }
 
     /// resume the music
-    pub fn music_resume() {
+    pub fn resume() {
         let mut state = STATE.lock().unwrap();
         state.music_status.pause = false;
         state.sender.send(Msg::ResumeMusic).unwrap();
     }
 
     /// stop the music
-    pub fn music_stop() {
+    pub fn stop() {
         let mut state = STATE.lock().unwrap();
         state.music_status.pause = false;
         state.music_status.id = None;
@@ -378,20 +390,20 @@ pub mod music {
     }
 
     /// return the current status of the music
-    pub fn music_status() -> MusicStatus {
+    pub fn status() -> MusicStatus {
         let state = STATE.lock().unwrap();
         state.music_status
     }
 
     /// set whereas music loop or not
-    pub fn music_set_loop(l: bool) {
+    pub fn set_loop(l: bool) {
         let mut state = STATE.lock().unwrap();
         state.music_status.looping = l;
         state.sender.send(Msg::SetMusicLoop(l)).unwrap();
     }
 
     /// return whereas music loop or not.
-    pub fn music_loop() -> bool {
+    pub fn is_looping() -> bool {
         let state = STATE.lock().unwrap();
         state.music_status.looping
     }
@@ -813,16 +825,5 @@ music:
 ...
 ").unwrap();
     assert_eq!(s,Setting::from_yaml(&doc[0]));
-}
-
-#[test]
-fn test_distance() {
-    let origin = [0.,0.,0.];
-    let d = DistanceModel::Linear(10.,110.);
-    assert_eq!(d.distance(&origin,&origin), 1.);
-    assert_eq!(d.distance(&origin,&[10.,0.,0.]), 1.);
-    assert_eq!(d.distance(&origin,&[60.,0.,0.]), 0.5);
-    assert!(d.distance(&origin,&[100.,0.,0.]) - 0.1 < 0.00001);
-    assert_eq!(d.distance(&origin,&[150.,0.,0.]), 0.);
 }
 
