@@ -524,7 +524,10 @@ pub fn close() {
         if !RAW_STATE.is_null() {
             let mutex_state = Box::from_raw(RAW_STATE);
             let state = mutex_state.lock().unwrap();
-            state.abort_sender.send(()).unwrap();
+            match state.abort_sender.send(()) {
+                Ok(()) => (),
+                Err(_) => (),
+            }
         }
         RAW_STATE = 0 as *mut Mutex<State>;
     }
