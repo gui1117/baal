@@ -3,6 +3,11 @@ name = "baal"
 version = "0.1.0"
 authors = ["thiolliere <guillaume.thiolliere@opmbx.org>"]
 license = "MIT OR Apache-2.0"
+description = "high level audio library"
+documentation = "https://thiolliere.org/doc/baal_doc/baal/index.html"
+repository = "https://github.com/thiolliere/baal"
+readme = "README.md"
+keywords = ["audio","simple","game","protype","basic","sound"]
 
 [dependencies]
 yaml-rust = "0.3.0"
