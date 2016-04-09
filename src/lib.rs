@@ -43,7 +43,9 @@
 extern crate lazy_static;
 extern crate yaml_rust;
 extern crate portaudio;
-extern crate sndfile;
+extern crate libc;
+
+mod sndfile;
 
 use yaml_rust::yaml::Yaml;
 use std::sync::mpsc::{Sender, channel};

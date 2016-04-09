@@ -13,5 +13,5 @@ keywords = ["audio","simple","game","protype","basic","sound"]
 yaml-rust = "0.3.0"
 lazy_static = "0.1.0"
 portaudio = "0.6.0"
-sndfile = { git = "https://github.com/thiolliere/rust-sndfile.git" }
+libc = "0.2.0"
 
