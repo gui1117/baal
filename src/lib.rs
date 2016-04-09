@@ -476,9 +476,10 @@ pub fn init(setting: Setting) {
     thread::spawn(move || {
         let mut buffer_p: Vec<f32> = (0..buffer_size).map(|i| i as f32).collect();
 
-        let pa = pa::PortAudio::new().unwrap();
+        let pa = pa::PortAudio::new().expect("fail to init portaudio");
 
-        let settings = pa.default_output_stream_settings(channels, sample_rate, frames_per_buffer).unwrap();
+        let settings = pa.default_output_stream_settings(channels, sample_rate, frames_per_buffer)
+            .expect("fail to get default output stream settings");
 
         let callback = move |pa::OutputStreamCallbackArgs { buffer, frames, .. }| {
             let frames = frames as i64;
@@ -506,9 +507,9 @@ pub fn init(setting: Setting) {
             pa::Continue
         };
 
-        let mut stream = pa.open_non_blocking_stream(settings, callback).unwrap();
+        let mut stream = pa.open_non_blocking_stream(settings, callback).expect("fail to open non blocking stream");
 
-        stream.start().unwrap();
+        stream.start().expect("fail to start stream");
 
         match abort_receiver.recv() {
             Ok(()) => (),
