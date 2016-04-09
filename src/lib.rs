@@ -20,7 +20,8 @@
 //!   From the website: [libsndfile](http://www.mega-nerd.com/libsndfile/#Download)
 //!
 //!   On Ubuntu / Debian:
-//!   ```sh
+//!
+//!   ```shell
 //!   apt-get install libsndfile1-dev
 //!   ```
 //!

@@ -7,7 +7,7 @@ description = "high level audio library"
 documentation = "https://thiolliere.org/doc/baal_doc/baal/index.html"
 repository = "https://github.com/thiolliere/baal"
 readme = "README.md"
-keywords = ["audio","simple","game","protype","basic","sound"]
+keywords = ["audio","simple","game","basic","sound"]
 
 [dependencies]
 yaml-rust = "0.3.0"
