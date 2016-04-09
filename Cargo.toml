@@ -2,6 +2,7 @@
 name = "baal"
 version = "0.1.0"
 authors = ["thiolliere <guillaume.thiolliere@opmbx.org>"]
+license = "MIT OR Apache-2.0"
 
 [dependencies]
 yaml-rust = "0.3.0"
