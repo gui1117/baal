@@ -63,11 +63,10 @@ static mut RAW_STATE: *mut Mutex<State> = 0 as *mut Mutex<State>;
 lazy_static! {
     static ref STATE: Mutex<State> = {
         unsafe {
-            if !RAW_STATE.is_null() {
-                *Box::from_raw(RAW_STATE)
-            } else {
+            if RAW_STATE.is_null() {
                 panic!("audio not initiated");
             }
+            *Box::from_raw(RAW_STATE)
         }
     };
 }
@@ -674,7 +673,10 @@ impl Music {
 
     fn fill_buffer(&mut self, buffer: &mut [f32], frames: i64) {
         let destroy_snd_file = if let Some(ref mut snd_file) = self.snd_file {
-            if !self.pause {
+            if self.pause {
+                for elt in buffer { *elt = 0.; }
+                false
+            } else {
                 let frame = snd_file.readf_f32(buffer,frames);
                 for elt in buffer {
                     *elt *= self.volume;
@@ -689,9 +691,6 @@ impl Music {
                 } else {
                     false
                 }
-            } else {
-                for elt in buffer { *elt = 0.; }
-                false
             }
         } else {
             for elt in buffer { *elt = 0.; }
