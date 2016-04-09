@@ -32,7 +32,7 @@ music:
 
 #[test]
 fn test() {
-    let yaml_config = YamlLoader::load_from_str(YAML_CONFIG).unwrap();
+    let yaml_config = YamlLoader::load_from_str(YAML_CONFIG).expect("fail to load yaml config");
 
     let setting = baal::Setting::from_yaml(&yaml_config[0]);
 
