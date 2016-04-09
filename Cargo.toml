@@ -1,0 +1,11 @@
+[package]
+name = "baal"
+version = "0.1.0"
+authors = ["thiolliere <guillaume.thiolliere@opmbx.org>"]
+
+[dependencies]
+yaml-rust = "0.3.0"
+lazy_static = "0.1.0"
+portaudio = "0.6.0"
+sndfile = { git = "https://github.com/thiolliere/rust-sndfile.git" }
+
