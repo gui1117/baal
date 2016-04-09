@@ -511,10 +511,7 @@ pub fn init(setting: Setting) {
 
         stream.start().expect("fail to start stream");
 
-        match abort_receiver.recv() {
-            Ok(()) => (),
-            Err(_) => (),
-        }
+        abort_receiver.recv().expect("audio thread abort error");
     });
 }
 
@@ -524,10 +521,7 @@ pub fn close() {
         if !RAW_STATE.is_null() {
             let mutex_state = Box::from_raw(RAW_STATE);
             let state = mutex_state.lock().unwrap();
-            match state.abort_sender.send(()) {
-                Ok(()) => (),
-                Err(_) => (),
-            }
+            state.abort_sender.send(()).unwrap();
         }
         RAW_STATE = 0 as *mut Mutex<State>;
     }
