@@ -2,5 +2,5 @@
 
 BAsic Audio Library
 
-DOCUMENTATION
+[DOCUMENTATION](https://thiolliere.org/doc/baal_doc/baal/index.html)
 
