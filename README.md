@@ -1,4 +1,4 @@
-#baal
+#baal [![](http://meritbadge.herokuapp.com/baal)](https://crates.io/crates/baal)
 
 BAsic Audio Library
 
