@@ -74,7 +74,7 @@ mod libsndfile {
 
 mod ffi;
 
-/// The SndInfo structure is for passing data between the calling
+/// The `SndInfo` structure is for passing data between the calling
 /// function and the library when opening a file for reading or writing.
 #[derive(Clone, PartialEq, PartialOrd, Debug, Copy)]
 #[repr(C)]
@@ -104,7 +104,7 @@ pub enum OpenMode {
     ReadWrite    = ffi::SFM_RDWR as isize
 }
 
-/// Type of strings available for method get_string()
+/// Type of strings available for method `get_string()`
 #[derive(Clone, PartialEq, PartialOrd, Debug, Copy)]
 pub enum StringSoundType {
     /// Get the title of the audio content
@@ -180,7 +180,7 @@ impl SndFileError {
     }
 }
 
-/// Type alias for a Result with SndFileError
+/// Type alias for a `Result` with `SndFileError`
 pub type SndFileResult<T> = Result<T, SndFileError>;
 
 /// Enum to set the offset with method seek
@@ -307,7 +307,7 @@ pub enum FormatType {
     FormatTypeMask = ffi::SF_FORMAT_TYPEMASK as isize,
 }
 
-/// SndFile object, used to load/store sound from a file path or an fd.
+/// `SndFile` object, used to load/store sound from a file path or an fd.
 #[derive(Debug)]
 #[allow(missing_copy_implementations)]
 pub struct SndFile {
@@ -380,13 +380,13 @@ impl SndFile {
             sections : 0,
             seekable : 0
         };
-        let tmp_sndfile = match close_desc {
-            true    => unsafe {
-                ffi::sf_open_fd(fd, mode as i32, &info, ffi::SF_TRUE)
-            },
-            false   => unsafe {
-                ffi::sf_open_fd(fd, mode as i32, &info, ffi::SF_FALSE)
-            }
+        let tmp_sndfile = unsafe {
+            ffi::sf_open_fd(fd, mode as i32, &info,
+                            if close_desc { 
+                                ffi::SF_TRUE
+                            } else {
+                                ffi::SF_FALSE
+                            })
         };
         if tmp_sndfile.is_null() {
             Err(SndFileError::from_code(unsafe {
@@ -402,7 +402,7 @@ impl SndFile {
 
     /// Return the SndInfo struct of the current music.
     pub fn get_sndinfo(&self) -> SndInfo {
-        self.info.clone()
+        self.info
     }
 
     /**
@@ -454,7 +454,7 @@ impl SndFile {
      *
      * Return true if the struct is valid, false otherwise.
      */
-    pub fn check_format<'r>(info : &'r SndInfo) -> bool {
+    pub fn check_format(info : &SndInfo) -> bool {
         match unsafe {ffi::sf_format_check(info) } {
             ffi::SF_TRUE    => true,
             ffi::SF_FALSE   => false,
