@@ -39,6 +39,7 @@ for more information about why not mp3 as lots of other foss handle it see [libs
 ##TODO
 
 * channels conversion
+* return result<(),Error..>
 
 ## License
 
