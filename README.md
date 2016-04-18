@@ -43,6 +43,7 @@ for more information about why not mp3 as lots of other foss handle it see [libs
 * [ ] support webgl back end
 * [ ] reset method
 * [ ] travis.yml
+* [ ] complete check set or not in yaml config
 
 ## License
 
