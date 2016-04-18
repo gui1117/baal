@@ -32,13 +32,6 @@
 //!   will download and build portaudio statically.
 //!   If this fails please let us know!
 //!   In the mean-time, you can manually download and install [PortAudio](http://www.portaudio.com/download.html) yourself.
-//!
-//! ##TODO
-//!
-//! * channels conversion
-
-
-//TODO conversion for channels
 
 #[macro_use]
 extern crate lazy_static;

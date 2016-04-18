@@ -36,10 +36,11 @@ for more information about why not mp3 as lots of other foss handle it see [libs
   If this fails please let us know!
   In the mean-time, you can manually download and install [PortAudio](http://www.portaudio.com/download.html) yourself.
 
-##TODO
+##TODO 0.2
 
-* channels conversion
-* return result<(),Error..>
+* [ ] channels conversion
+* [ ] return result<(),Error..>
+* [ ] support webgl back end
 
 ## License
 
