@@ -42,6 +42,7 @@ for more information about why not mp3 as lots of other foss handle it see [libs
 * [ ] return result<(),Error..>
 * [ ] support webgl back end
 * [ ] reset method
+* [ ] travis.yml
 
 ## License
 
