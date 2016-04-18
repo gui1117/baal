@@ -55,6 +55,8 @@ rustpkg build sndfile
 #![allow(dead_code)]
 #![warn(missing_docs)]
 
+extern crate libc;
+
 use std::path::Path;
 use std::ptr;
 use std::ffi::{CStr, CString};
@@ -382,7 +384,7 @@ impl SndFile {
         };
         let tmp_sndfile = unsafe {
             ffi::sf_open_fd(fd, mode as i32, &info,
-                            if close_desc { 
+                            if close_desc {
                                 ffi::SF_TRUE
                             } else {
                                 ffi::SF_FALSE
