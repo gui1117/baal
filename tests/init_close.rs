@@ -36,8 +36,8 @@ fn test() {
 
     let setting = baal::Setting::from_yaml(&yaml_config[0]).expect("fail to create setting");
 
-    for _ in 0..2 {
-        baal::init(setting.clone()).expect("fail to init baal");
+    for _ in 0..4 {
+        baal::init(&setting).expect("fail to init baal");
         baal::music::play(0);
 
         for i in 0..7 {

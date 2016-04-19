@@ -35,8 +35,7 @@ fn main() {
 
     let setting = baal::Setting::from_yaml(&yaml_config[0]).unwrap();
 
-    baal::init(setting.clone()).unwrap();
-    baal::music::play(0);
+    baal::init(&setting).unwrap();
     baal::music::play(0);
 
     for i in 0..7 {

@@ -41,7 +41,7 @@ extern crate portaudio;
 extern crate sndfile;
 
 use yaml_rust::yaml::Yaml;
-use std::sync::mpsc::{Sender, channel};
+use std::sync::mpsc::{Sender, Receiver, channel};
 use std::sync::Mutex;
 use sndfile::{SndFile, OpenMode, SeekMode};
 use portaudio as pa;
@@ -458,50 +458,48 @@ pub enum InitError {
     SampleRate(String),
     /// channels of this file is incompatible with the setting
     Channels(String),
+    /// baal has already been initialiazed
+    DoubleInit,
 }
 
-/// init the audio player
-pub fn init(setting: Setting) -> Result<(), InitError> {
-
-    let (sender,receiver) = channel();
-    let (abort_sender,abort_receiver) = channel();
-
-    let channels = setting.channels;
-
-    let sample_rate = setting.sample_rate;
-
-    let frames_per_buffer = setting.frames_per_buffer;
-
-    let buffer_size = (channels as usize) * (frames_per_buffer as usize);
-
-    assert!({
-        for i in &setting.music {
-            let file = Path::new(&setting.music_dir).join(Path::new(&i));
-            let snd_file = try!(SndFile::new(file.as_path(),OpenMode::Read)
-                                .map_err(|sfe| InitError::SndFile((sfe,i.clone()))));
-            let snd_info = snd_file.get_sndinfo();
-            if snd_info.samplerate as f64 != setting.sample_rate {
-                return Err(InitError::SampleRate(i.clone()));
-            }
-            if snd_info.channels != setting.channels {
-                return Err(InitError::Channels(i.clone()));
-            }
+fn check_setting(setting: &Setting) -> Result<(),InitError> {
+    for i in &setting.music {
+        let file = Path::new(&setting.music_dir).join(Path::new(&i));
+        let snd_file = try!(SndFile::new(file.as_path(),OpenMode::Read)
+                            .map_err(|sfe| InitError::SndFile((sfe,i.clone()))));
+        let snd_info = snd_file.get_sndinfo();
+        if snd_info.samplerate as f64 != setting.sample_rate {
+            return Err(InitError::SampleRate(i.clone()));
         }
-        for &(ref i,_) in &setting.effect {
-            let file = Path::new(&setting.effect_dir).join(Path::new(i));
-            let snd_file = try!(SndFile::new(file.as_path(),OpenMode::Read)
-                                .map_err(|sfe| InitError::SndFile((sfe,i.clone()))));
-            let snd_info = snd_file.get_sndinfo();
-            if snd_info.samplerate as f64 != setting.sample_rate {
-                return Err(InitError::SampleRate(i.clone()));
-            }
-            if snd_info.channels != setting.channels {
-                return Err(InitError::Channels(i.clone()));
-            }
+        if snd_info.channels != setting.channels {
+            return Err(InitError::Channels(i.clone()));
         }
-        true
-    });
+    }
+    for &(ref i,_) in &setting.effect {
+        let file = Path::new(&setting.effect_dir).join(Path::new(i));
+        let snd_file = try!(SndFile::new(file.as_path(),OpenMode::Read)
+                            .map_err(|sfe| InitError::SndFile((sfe,i.clone()))));
+        let snd_info = snd_file.get_sndinfo();
+        if snd_info.samplerate as f64 != setting.sample_rate {
+            return Err(InitError::SampleRate(i.clone()));
+        }
+        if snd_info.channels != setting.channels {
+            return Err(InitError::Channels(i.clone()));
+        }
+    }
+    Ok(())
+}
 
+fn init_state(setting: &Setting, sender: Sender<Msg>, abort_sender: Sender<()>) {
+    let state = State::from_setting(&setting,sender,abort_sender);
+
+    unsafe {
+        let box_state = Box::new(Mutex::new(state));
+        RAW_STATE = Box::into_raw(box_state);
+    }
+}
+
+fn init_stream(setting: &Setting, receiver: Receiver<Msg>, abort_receiver: Receiver<()>) -> Result<(), InitError> {
     let mut effect: Vec<Effect> = setting.effect.iter()
         .map(|&(ref name,nbr)| Effect::new(
                 Path::new(&setting.effect_dir)
@@ -513,20 +511,14 @@ pub fn init(setting: Setting) -> Result<(), InitError> {
 
     let mut music = Music::new((setting.global_volume*setting.music_volume as f32),setting.music_loop);
 
-    let state = State::from_setting(setting,sender,abort_sender);
-
-    unsafe {
-        assert!(RAW_STATE.is_null());
-        let box_state = Box::new(Mutex::new(state));
-        RAW_STATE = Box::into_raw(box_state);
-    }
-
-    // init assets for audio stream
-    let mut buffer_p: Vec<f32> = (0..buffer_size).map(|i| i as f32).collect();
+    let mut buffer_p: Vec<f32> = {
+        let buffer_size = (setting.channels as usize) * (setting.frames_per_buffer as usize);
+        (0..buffer_size).map(|i| i as f32).collect()
+    };
 
     let pa = try!(pa::PortAudio::new().map_err(|e| InitError::PortAudio(e)));
 
-    let settings = try!(pa.default_output_stream_settings(channels, sample_rate, frames_per_buffer)
+    let settings = try!(pa.default_output_stream_settings(setting.channels, setting.sample_rate, setting.frames_per_buffer)
                         .map_err(|e| InitError::PortAudio(e)));
 
     let callback = move |pa::OutputStreamCallbackArgs { buffer, frames, .. }| {
@@ -566,6 +558,24 @@ pub fn init(setting: Setting) -> Result<(), InitError> {
     Ok(())
 }
 
+/// init the audio player
+pub fn init(setting: &Setting) -> Result<(), InitError> {
+    unsafe { if !RAW_STATE.is_null() {
+        return Err(InitError::DoubleInit);
+    }};
+
+    try!(check_setting(setting));
+
+    let (sender,receiver) = channel();
+    let (abort_sender,abort_receiver) = channel();
+
+    init_state(setting, sender, abort_sender);
+
+    try!(init_stream(setting, receiver, abort_receiver));
+
+    Ok(())
+}
+
 /// close the audio player, it can be init again.
 pub fn close() {
     unsafe {
@@ -573,10 +583,31 @@ pub fn close() {
             let mutex_state = Box::from_raw(RAW_STATE);
             let state = mutex_state.lock().unwrap();
             state.abort_sender.send(()).unwrap();
-            // state.drop();
         }
         RAW_STATE = 0 as *mut Mutex<State>;
     }
+}
+
+/// reset audio from setting on the fly
+pub fn reset(setting: &Setting) -> Result<(),InitError> {
+    try!(check_setting(setting));
+
+    let (sender,receiver) = channel();
+    let (abort_sender,abort_receiver) = channel();
+
+    let old_raw_state = unsafe { RAW_STATE };
+
+    init_state(setting, sender, abort_sender);
+
+    // drop old state
+    {
+        let old_mutex_state = unsafe { Box::from_raw(old_raw_state) };
+        let old_state = old_mutex_state.lock().unwrap();
+        old_state.abort_sender.send(()).unwrap();
+    }
+
+    try!(init_stream(setting, receiver, abort_receiver));
+    Ok(())
 }
 
 struct State {
@@ -592,7 +623,7 @@ struct State {
 }
 
 impl State {
-    fn from_setting(s: Setting,sender: Sender<Msg>,abort_sender: Sender<()>) -> State {
+    fn from_setting(s: &Setting,sender: Sender<Msg>,abort_sender: Sender<()>) -> State {
         let music_dir = Path::new(&s.music_dir);
         let music: Vec<PathBuf> = s.music.iter().map(|name| music_dir.join(Path::new(&name))).collect();
 
@@ -607,7 +638,7 @@ impl State {
             abort_sender: abort_sender,
             listener: [0.,0.,0.],
             music_status: music_status,
-            distance_model: s.distance_model,
+            distance_model: s.distance_model.clone(),
             global_volume: s.global_volume,
             music_volume: s.music_volume,
             effect_volume: s.effect_volume,
