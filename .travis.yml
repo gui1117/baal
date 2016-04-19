@@ -3,7 +3,6 @@ rust:
     - stable
     - beta
     - nightly
-
 addons:
     apt:
         packages:
