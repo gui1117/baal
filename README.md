@@ -39,7 +39,7 @@ for more information about why not mp3 as lots of other foss handle it see [libs
 ##TODO 0.2
 
 * [ ] channels conversion
-* [ ] return result<(),Error..>
+* [x] return result<(),Error..>
 * [ ] support webgl back end
 * [ ] reset method
 * [ ] travis.yml

@@ -33,7 +33,7 @@ music:
 fn main() {
     let yaml_config = YamlLoader::load_from_str(YAML_CONFIG).unwrap();
 
-    let setting = baal::Setting::from_yaml(&yaml_config[0]);
+    let setting = baal::Setting::from_yaml(&yaml_config[0]).unwrap();
 
     baal::init(setting.clone());
     baal::music::play(0);

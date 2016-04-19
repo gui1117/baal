@@ -33,13 +33,13 @@
 //!   If this fails please let us know!
 //!   In the mean-time, you can manually download and install [PortAudio](http://www.portaudio.com/download.html) yourself.
 
+#![warn(missing_docs)]
+
 #[macro_use]
 extern crate lazy_static;
 extern crate yaml_rust;
 extern crate portaudio;
-extern crate libc;
-
-mod sndfile;
+extern crate sndfile;
 
 use yaml_rust::yaml::Yaml;
 use std::sync::mpsc::{Sender, channel};
@@ -54,12 +54,12 @@ use effect::DistanceModel;
 static mut RAW_STATE: *mut Mutex<State> = 0 as *mut Mutex<State>;
 
 lazy_static! {
-    static ref STATE: Mutex<State> = {
+    static ref STATE: Box<Mutex<State>> = {
         unsafe {
             if RAW_STATE.is_null() {
                 panic!("audio not initiated");
             }
-            *Box::from_raw(RAW_STATE)
+            Box::from_raw(RAW_STATE)
         }
     };
 }
@@ -132,79 +132,101 @@ impl Setting {
     /// ...
     /// ```
     ///
-    pub fn from_yaml(code: &Yaml) -> Self {
-        let hash = code.as_hash().expect("config must be an associative array");
+    pub fn from_yaml(code: &Yaml) -> Result<Self,String> {
+        let hash = try!(code.as_hash().ok_or_else(|| "config must be an associative array"));
+
         let distance_model = {
-            let vec = hash.get(&Yaml::String(String::from("distance_model")))
-                .expect("config map must have distance_model key").as_vec().expect("distance model must be vector");
-            match vec[0].as_str().expect("distance model first element must be the string of the enum") {
+            let vec = try!(try!(hash.get(&Yaml::String(String::from("distance_model")))
+                .ok_or_else(|| "config map must have distance_model key")).as_vec()
+                .ok_or_else(|| "distance model must be vector"));
+
+            match try!(vec[0].as_str().ok_or_else(|| "distance model first element must be the string of the enum")) {
                 "Linear" => DistanceModel::Linear(
-                    vec[1].as_f64().expect("linear distance model second element must be a float"),
-                    vec[2].as_f64().expect("linear distance model third element must be a float")
-                    ),
+                    try!(vec[1].as_f64().ok_or_else(|| "linear distance model second element must be a float")),
+                    try!(vec[2].as_f64().ok_or_else(|| "linear distance model third element must be a float"))),
                 "Pow2" => DistanceModel::Pow2(
-                    vec[1].as_f64().expect("exponential distance model second element must be a float"),
-                    vec[2].as_f64().expect("exponential distance model third element must be a float")
-                    ),
-                    _ => panic!("distance model first element is not a correct enum"),
+                    try!(vec[1].as_f64().ok_or_else(|| "exponential distance model second element must be a float")),
+                    try!(vec[2].as_f64().ok_or_else(|| "exponential distance model third element must be a float"))),
+                _ => return Err("distance model first element is not a correct enum".into()),
             }
         };
         let effect = {
-            let key = hash.get(&Yaml::String(String::from("effect"))).expect("config map must have effect key");
+            let key = try!(hash.get(&Yaml::String(String::from("effect")))
+                           .ok_or_else(|| "config map must have effect key"));
+
             if let Some(vec) = key.as_vec() {
-                vec.iter()
-                    .map(|y| {
-                        let vec = y.as_vec().expect("element of effect list must be a vector");
-                        (String::from(vec[0].as_str().expect("first element of effect list must be a string")),
-                        vec[1].as_i64().expect("second element of effect list must be an integer") as u32)
-                    }).collect()
+                let mut res = Vec::new();
+                for y in vec {
+                    let y_vec = try!(y.as_vec().ok_or_else(|| "element of effect list must be a vector"));
+                    let name = try!(y_vec[0].as_str().ok_or_else(|| "first element of effect list must be a string")).into();
+                    let loads = try!(y_vec[1].as_i64().ok_or_else(|| "second element of effect list must be an integer")) as u32;
+                    res.push((name,loads));
+                }
+                res
             } else if key.is_null() {
                 vec!()
             } else {
-                panic!("effect must a list or null");
+                return Err("effect must a list or null".into());
             }
         };
 
         let music = {
-            let key = hash.get(&Yaml::String(String::from("music"))).expect("config map must have music key");
+            let key = try!(hash.get(&Yaml::String(String::from("music"))).ok_or_else(|| "config map must have music key"));
             if let Some(vec) = key.as_vec() {
-                vec.iter()
-                    .map(|y| String::from(y.as_str().expect("element of music must a string")))
-                    .collect()
+                let mut res = Vec::new();
+                for y in vec {
+                    res.push(try!(y.as_str().ok_or_else(|| "element of music must a string")).into());
+                }
+                res
             } else if key.is_null() {
                 vec!()
             } else {
-                panic!("music must a list or null");
+                return Err("music must a list or null".into());
             }
         };
 
-        Setting {
-            channels: hash.get(&Yaml::String(String::from("channels")))
-                .expect("config map must have a channels key").as_i64().expect("channels must be integer") as i32,
-            sample_rate: hash.get(&Yaml::String(String::from("sample_rate")))
-                .expect("config map must have a sample_rate key").as_f64().expect("sample_rate must be float"),
-            frames_per_buffer: hash.get(&Yaml::String(String::from("frames_per_buffer")))
-                .expect("config map must have a frames_per_buffer key").as_i64().expect("frames_per_buffer must be integer") as u32,
+        Ok(Setting {
+            channels: try!(try!(hash.get(&Yaml::String(String::from("channels")))
+                .ok_or_else(|| "config map must have a channels key")).as_i64()
+                .ok_or_else(|| "channels must be integer")) as i32,
 
-            music_dir: String::from(hash.get(&Yaml::String(String::from("music_dir")))
-                .expect("config map must have a music_dir key").as_str().expect("music_dir must be string")),
-            effect_dir: String::from(hash.get(&Yaml::String(String::from("effect_dir")))
-                .expect("config map must have a effect_dir key").as_str().expect("effect_dir must be string")),
+            sample_rate: try!(try!(hash.get(&Yaml::String(String::from("sample_rate")))
+                .ok_or_else(|| "config map must have a sample_rate key")).as_f64()
+                .ok_or_else(|| "sample_rate must be float")),
 
-            global_volume: hash.get(&Yaml::String(String::from("global_volume")))
-                .expect("config map must have a global_volume key").as_f64().expect("global volume must be float") as f32,
-            music_volume: hash.get(&Yaml::String(String::from("music_volume")))
-                .expect("config map must have a music_volume key").as_f64().expect("music volume must be float") as f32,
-            effect_volume: hash.get(&Yaml::String(String::from("effect_volume")))
-                .expect("config map must have a effect_volume key").as_f64().expect("effect volume must be float") as f32,
+            frames_per_buffer: try!(try!(hash.get(&Yaml::String(String::from("frames_per_buffer")))
+                .ok_or_else(|| "config map must have a frames_per_buffer key")).as_i64()
+                .ok_or_else(|| "frames_per_buffer must be integer")) as u32,
+
+            music_dir: String::from(try!(try!(hash.get(&Yaml::String(String::from("music_dir")))
+                .ok_or_else(|| "config map must have a music_dir key")).as_str()
+                .ok_or_else(|| "music_dir must be string"))),
+
+            effect_dir: String::from(try!(try!(hash.get(&Yaml::String(String::from("effect_dir")))
+                .ok_or_else(|| "config map must have a effect_dir key")).as_str()
+                .ok_or_else(|| "effect_dir must be string"))),
+
+            global_volume: try!(try!(hash.get(&Yaml::String(String::from("global_volume")))
+                .ok_or_else(|| "config map must have a global_volume key")).as_f64()
+                .ok_or_else(|| "global volume must be float")) as f32,
+
+            music_volume: try!(try!(hash.get(&Yaml::String(String::from("music_volume")))
+                .ok_or_else(|| "config map must have a music_volume key")).as_f64()
+                .ok_or_else(|| "music volume must be float")) as f32,
+
+            effect_volume: try!(try!(hash.get(&Yaml::String(String::from("effect_volume")))
+                .ok_or_else(|| "config map must have a effect_volume key")).as_f64()
+                .ok_or_else(|| "effect volume must be float")) as f32,
 
             distance_model: distance_model,
-            music_loop: hash.get(&Yaml::String(String::from("music_loop")))
-                .expect("config map must have a music_loop key").as_bool().expect("music_loop must be bool"),
+
+            music_loop: try!(try!(hash.get(&Yaml::String(String::from("music_loop")))
+                .ok_or_else(|| "config map must have a music_loop key")).as_bool()
+                .ok_or_else(|| "music_loop must be bool")),
 
             effect: effect,
             music: music,
-        }
+        })
     }
 }
 
@@ -436,8 +458,21 @@ pub fn stop() {
     state.sender.send(Msg::StopEffect).unwrap();
 }
 
+/// error possible on init
+#[derive(Debug)]
+pub enum InitError {
+    /// portaudio error
+    PortAudio(pa::error::Error),
+    /// sndfile error and the file corresponding
+    SndFile((sndfile::SndFileError,String)),
+    /// samplerate of this file doesn't match the setting
+    SampleRate(String),
+    /// channels of this file is incompatible with the setting
+    Channels(String),
+}
+
 /// init the audio player
-pub fn init(setting: Setting) {
+pub fn init(setting: Setting) -> Result<(), InitError> {
     let (sender,receiver) = channel();
     let (abort_sender,abort_receiver) = channel();
 
@@ -448,6 +483,34 @@ pub fn init(setting: Setting) {
     let frames_per_buffer = setting.frames_per_buffer;
 
     let buffer_size = (channels as usize) * (frames_per_buffer as usize);
+
+    assert!({
+        for i in &setting.music {
+            let file = Path::new(&setting.music_dir).join(Path::new(&i));
+            let snd_file = try!(SndFile::new(file.as_path(),OpenMode::Read)
+                                .map_err(|sfe| InitError::SndFile((sfe,i.clone()))));
+            let snd_info = snd_file.get_sndinfo();
+            if snd_info.samplerate as f64 != setting.sample_rate {
+                return Err(InitError::SampleRate(i.clone()));
+            }
+            if snd_info.channels != setting.channels {
+                return Err(InitError::Channels(i.clone()));
+            }
+        }
+        for &(ref i,_) in &setting.effect {
+            let file = Path::new(&setting.effect_dir).join(Path::new(i));
+            let snd_file = try!(SndFile::new(file.as_path(),OpenMode::Read)
+                                .map_err(|sfe| InitError::SndFile((sfe,i.clone()))));
+            let snd_info = snd_file.get_sndinfo();
+            if snd_info.samplerate as f64 != setting.sample_rate {
+                return Err(InitError::SampleRate(i.clone()));
+            }
+            if snd_info.channels != setting.channels {
+                return Err(InitError::Channels(i.clone()));
+            }
+        }
+        true
+    });
 
     let mut effect: Vec<Effect> = setting.effect.iter()
         .map(|&(ref name,nbr)| Effect::new(
@@ -468,46 +531,49 @@ pub fn init(setting: Setting) {
         RAW_STATE = Box::into_raw(box_state);
     }
 
+    // init assets for audio stream
+    let mut buffer_p: Vec<f32> = (0..buffer_size).map(|i| i as f32).collect();
+
+    let pa = try!(pa::PortAudio::new().map_err(|e| InitError::PortAudio(e)));
+
+    let settings = try!(pa.default_output_stream_settings(channels, sample_rate, frames_per_buffer)
+                        .map_err(|e| InitError::PortAudio(e)));
+
+    let callback = move |pa::OutputStreamCallbackArgs { buffer, frames, .. }| {
+        let frames = frames as i64;
+
+        while let Ok(msg) = receiver.try_recv() {
+            match msg {
+                Msg::PlayEffect(n,vol) => effect[n].play(vol),
+                Msg::SetMusicVolume(vol) => music.set_volume(vol),
+                Msg::PlayMusic(snd_file) => music.set_music(snd_file),
+                Msg::PauseMusic => music.pause(),
+                Msg::ResumeMusic => music.resume(),
+                Msg::SeekMusic(frame) => music.seek(frame),
+                Msg::StopMusic => music.stop(),
+                Msg::StopEffect => for e in &mut effect { e.stop(); },
+                Msg::SetMusicLoop(l) => music.set_loop(l),
+            }
+        }
+
+        music.fill_buffer(buffer,frames);
+
+        for e in &mut effect {
+            e.fill_buffer(buffer,&mut buffer_p ,frames);
+        }
+
+        pa::Continue
+    };
+
     thread::spawn(move || {
-        let mut buffer_p: Vec<f32> = (0..buffer_size).map(|i| i as f32).collect();
+        let mut stream = pa.open_non_blocking_stream(settings, callback).expect("fail to open non blocking audio stream");
 
-        let pa = pa::PortAudio::new().expect("fail to init portaudio");
-
-        let settings = pa.default_output_stream_settings(channels, sample_rate, frames_per_buffer)
-            .expect("fail to get default output stream settings");
-
-        let callback = move |pa::OutputStreamCallbackArgs { buffer, frames, .. }| {
-            let frames = frames as i64;
-
-            while let Ok(msg) = receiver.try_recv() {
-                match msg {
-                    Msg::PlayEffect(n,vol) => effect[n].play(vol),
-                    Msg::SetMusicVolume(vol) => music.set_volume(vol),
-                    Msg::PlayMusic(snd_file) => music.set_music(snd_file),
-                    Msg::PauseMusic => music.pause(),
-                    Msg::ResumeMusic => music.resume(),
-                    Msg::SeekMusic(frame) => music.seek(frame),
-                    Msg::StopMusic => music.stop(),
-                    Msg::StopEffect => for e in &mut effect { e.stop(); },
-                    Msg::SetMusicLoop(l) => music.set_loop(l),
-                }
-            }
-
-            music.fill_buffer(buffer,frames);
-
-            for e in &mut effect {
-                e.fill_buffer(buffer,&mut buffer_p ,frames);
-            }
-
-            pa::Continue
-        };
-
-        let mut stream = pa.open_non_blocking_stream(settings, callback).expect("fail to open non blocking stream");
-
-        stream.start().expect("fail to start stream");
+        stream.start().expect("fail to start audio stream");
 
         abort_receiver.recv().expect("audio thread abort error");
     });
+
+    Ok(())
 }
 
 /// close the audio player, it can be init again.
@@ -544,20 +610,6 @@ impl State {
             pause: false,
             id: None,
         };
-
-        debug_assert!({
-            for m in &music {
-                let snd_file = SndFile::new(m,OpenMode::Read).expect(&format!("cannot load {:#?}",m));
-                let snd_info = snd_file.get_sndinfo();
-                if snd_info.samplerate as f64 != s.sample_rate {
-                    panic!("samplerate of {:#?} differ from setting",m);
-                }
-                if snd_info.channels != s.channels {
-                    panic!("channels of {:#?} differ from setting",m);
-                }
-            }
-            true
-        });
 
         State {
             sender: sender,
@@ -600,7 +652,7 @@ impl Effect {
         let mut volume = Vec::with_capacity(capacity);
 
         for _ in 0..capacity {
-            batch.push(SndFile::new(path,OpenMode::Read).expect("cannot load effect file"));
+            batch.push(SndFile::new(path,OpenMode::Read).unwrap()); // unwrap because already checked by State
             volume.push(0.);
         }
 
@@ -773,7 +825,7 @@ music:
     - forest.ogg
 ...
 ").unwrap();
-    assert_eq!(s,Setting::from_yaml(&doc[0]));
+    assert_eq!(s,Setting::from_yaml(&doc[0]).unwrap());
 }
 
 #[test]
@@ -817,6 +869,6 @@ effect:
 music:
 ...
 ").unwrap();
-    assert_eq!(s,Setting::from_yaml(&doc[0]));
+    assert_eq!(s,Setting::from_yaml(&doc[0]).unwrap());
 }
 

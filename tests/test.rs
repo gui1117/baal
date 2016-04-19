@@ -34,10 +34,10 @@ music:
 fn test() {
     let yaml_config = YamlLoader::load_from_str(YAML_CONFIG).expect("fail to load yaml config");
 
-    let setting = baal::Setting::from_yaml(&yaml_config[0]);
+    let setting = baal::Setting::from_yaml(&yaml_config[0]).expect("fail to create setting");
 
     for _ in 0..2 {
-        baal::init(setting.clone());
+        baal::init(setting.clone()).expect("fail to init baal");
         baal::music::play(0);
 
         for i in 0..7 {
