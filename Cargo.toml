@@ -11,7 +11,6 @@ keywords = ["audio","simple","game","basic","sound"]
 
 [dependencies]
 yaml-rust = "0.3.0"
-lazy_static = "0.1.0"
 portaudio = "0.6.0"
 sndfile = { path = "src/sndfile" }
 
