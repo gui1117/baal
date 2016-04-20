@@ -55,20 +55,20 @@ music:
 
 #[test]
 fn channel_conv() {
-    let one_channel_yaml_config = YamlLoader::load_from_str(ONE_CHANNEL_YAML_CONFIG).unwrap();
-    let two_channel_yaml_config = YamlLoader::load_from_str(TWO_CHANNEL_YAML_CONFIG).unwrap();
+    let one_channel_yaml_config = YamlLoader::load_from_str(ONE_CHANNEL_YAML_CONFIG).expect("load yaml config");
+    let two_channel_yaml_config = YamlLoader::load_from_str(TWO_CHANNEL_YAML_CONFIG).expect("load yaml config");
 
-    let one_channel_setting = baal::Setting::from_yaml(&one_channel_yaml_config[0]).unwrap();
-    let two_channel_setting = baal::Setting::from_yaml(&two_channel_yaml_config[0]).unwrap();
+    let one_channel_setting = baal::Setting::from_yaml(&one_channel_yaml_config[0]).expect("create setting from yaml");
+    let two_channel_setting = baal::Setting::from_yaml(&two_channel_yaml_config[0]).expect("create setting from yaml");
 
-    baal::init(&one_channel_setting).unwrap();
+    baal::init(&one_channel_setting).expect("init baal");
 
     baal::effect::play(0,&[0.,0.,0.]);
     thread::sleep(Duration::from_secs(2));
     baal::effect::play(1,&[0.,0.,0.]);
     thread::sleep(Duration::from_secs(5));
 
-    baal::reset(&two_channel_setting).unwrap();
+    baal::reset(&two_channel_setting).expect("reset baal");
 
     baal::effect::play(0,&[0.,0.,0.]);
     thread::sleep(Duration::from_secs(2));
