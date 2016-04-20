@@ -11,9 +11,10 @@ keywords = ["audio","simple","game","basic","sound"]
 
 [dependencies]
 yaml-rust = "0.3.0"
+libc = "0.2.0"
 portaudio = "0.6.0"
 
-[dependencies.sndfile]
-path = "src/sndfile"
-version = "0.0.2"
+#[dependencies.sndfile]
+#path = "src/sndfile"
+#version = "0.0.2"
 

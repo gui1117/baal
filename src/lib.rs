@@ -39,7 +39,8 @@
 #[macro_use]
 extern crate yaml_rust;
 extern crate portaudio;
-extern crate sndfile;
+
+mod sndfile;
 
 use yaml_rust::yaml::Yaml;
 use std::sync::mpsc::{Sender, Receiver, channel};

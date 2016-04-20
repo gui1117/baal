@@ -21,8 +21,10 @@
 
 #![allow(dead_code, non_camel_case_types)]
 
+extern crate libc;
+
 use super::*;
-use libc::{c_char, c_void};
+use self::libc::{c_char, c_void};
 
 pub type SF_MODE = i32;
 pub const SFM_READ : SF_MODE   = 0x10;
