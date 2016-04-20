@@ -7,6 +7,7 @@ use std::time::Duration;
 
 static YAML_CONFIG: &'static str =
 "---
+check_level: always
 channels: 1
 sample_rate: 44100.
 frames_per_buffer: 64

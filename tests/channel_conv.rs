@@ -7,6 +7,7 @@ use std::time::Duration;
 
 static ONE_CHANNEL_YAML_CONFIG: &'static str =
 "---
+check_level: always
 channels: 1
 sample_rate: 44100.
 frames_per_buffer: 64
@@ -30,6 +31,7 @@ music:
 
 static TWO_CHANNEL_YAML_CONFIG: &'static str =
 "---
+check_level: always
 channels: 2
 sample_rate: 44100.
 frames_per_buffer: 64

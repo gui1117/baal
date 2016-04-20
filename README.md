@@ -7,6 +7,7 @@ BAsic Audio Library
 ##Features
 
 * yaml configuration so you can easily test sounds without recompile
+* channel conversion: 1 or 2 for files and 1 or 2 for audio output
 * music player
 * effect player
 * no mp3, use ogg vorbis or other format instead

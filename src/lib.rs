@@ -3,6 +3,7 @@
 //! ##Features
 //!
 //! * yaml configuration so you can easily test sounds without recompile
+//! * channel conversion: 1 or 2 for files and 1 or 2 for audio output
 //! * music player: detail in [music mode](./music/index.html)
 //! * effect player: detail in [effect mode](./effect/index.html)
 //! * no mp3, use ogg vorbis or other format instead
@@ -52,6 +53,35 @@ use effect::DistanceModel;
 
 static mut RAW_STATE: *mut Mutex<State> = 0 as *mut Mutex<State>;
 
+/// check at init if all music are OK
+/// otherwise it may panic when playing the music
+#[derive(Debug,Clone,Copy,PartialEq)]
+pub enum CheckLevel {
+    /// always check all music
+    Always,
+    /// check all music in debug mode only
+    Debug,
+    /// dont check music
+    Never,
+}
+
+impl CheckLevel {
+    fn check(&self) -> bool {
+        match *self {
+            CheckLevel::Always => true,
+            CheckLevel::Never => false,
+            CheckLevel::Debug => {
+                let mut debug = false;
+                debug_assert!({
+                    debug = true;
+                    true
+                });
+                debug
+            }
+        }
+    }
+}
+
 #[derive(Clone,Debug,PartialEq)]
 /// set musics, effects, volumes and audio player.
 pub struct Setting {
@@ -90,6 +120,9 @@ pub struct Setting {
     ///
     /// each music is identified by its position in the vector
     pub music: Vec<String>,
+
+    /// check level: always, debug or never
+    pub check_level: CheckLevel,
 }
 
 impl Setting {
@@ -97,7 +130,9 @@ impl Setting {
     ///
     /// ```yaml
     /// ---
-    /// channels: 1
+    /// check_level: always
+    ///
+    /// channels: 2
     /// sample_rate: 44100.
     /// frames_per_buffer: 64
     ///
@@ -108,7 +143,7 @@ impl Setting {
     /// music_volume: 0.8
     /// effect_volume: 0.3
     ///
-    /// distance_model: [Pow2,10.,110.]
+    /// distance_model: [pow2,10.,110.]
     /// music_loop: true
     ///
     /// effect:
@@ -123,21 +158,35 @@ impl Setting {
     pub fn from_yaml(code: &Yaml) -> Result<Self,String> {
         let hash = try!(code.as_hash().ok_or_else(|| "config must be an associative array"));
 
+        let check_level = {
+            let check_level_str = try!(try!(hash.get(&Yaml::String(String::from("check_level")))
+                .ok_or_else(|| "config map must have check_level key")).as_str()
+                .ok_or_else(|| "check_level must be a string"));
+
+            match check_level_str {
+                "always" | "Always" => CheckLevel::Always,
+                "debug" | "Debug" => CheckLevel::Debug,
+                "never" | "Never" => CheckLevel::Never,
+                _ => return Err("check level is not a correct enum".into()),
+            }
+        };
+
         let distance_model = {
             let vec = try!(try!(hash.get(&Yaml::String(String::from("distance_model")))
                 .ok_or_else(|| "config map must have distance_model key")).as_vec()
                 .ok_or_else(|| "distance model must be vector"));
 
             match try!(vec[0].as_str().ok_or_else(|| "distance model first element must be the string of the enum")) {
-                "Linear" => DistanceModel::Linear(
+                "linear" | "Linear" => DistanceModel::Linear(
                     try!(vec[1].as_f64().ok_or_else(|| "linear distance model second element must be a float")),
                     try!(vec[2].as_f64().ok_or_else(|| "linear distance model third element must be a float"))),
-                "Pow2" => DistanceModel::Pow2(
+                "pow2" | "Pow2" => DistanceModel::Pow2(
                     try!(vec[1].as_f64().ok_or_else(|| "exponential distance model second element must be a float")),
                     try!(vec[2].as_f64().ok_or_else(|| "exponential distance model third element must be a float"))),
                 _ => return Err("distance model first element is not a correct enum".into()),
             }
         };
+
         let effect = {
             let key = try!(hash.get(&Yaml::String(String::from("effect")))
                            .ok_or_else(|| "config map must have effect key"));
@@ -214,6 +263,7 @@ impl Setting {
 
             effect: effect,
             music: music,
+            check_level: check_level,
         })
     }
 }
@@ -468,16 +518,18 @@ fn check_setting(setting: &Setting) -> Result<(),InitError> {
     if setting.channels != 1 && setting.channels != 2 {
         return Err(InitError::OutputChannels);
     }
-    for i in &setting.music {
-        let file = Path::new(&setting.music_dir).join(Path::new(&i));
-        let snd_file = try!(SndFile::new(file.as_path(),OpenMode::Read)
-                            .map_err(|sfe| InitError::SndFile((sfe,i.clone()))));
-        let snd_info = snd_file.get_sndinfo();
-        if snd_info.samplerate as f64 != setting.sample_rate {
-            return Err(InitError::SampleRate(i.clone()));
-        }
-        if snd_info.channels != 1 && snd_info.channels != 2 {
-            return Err(InitError::Channels(i.clone()));
+    if setting.check_level.check() {
+        for i in &setting.music {
+            let file = Path::new(&setting.music_dir).join(Path::new(&i));
+            let snd_file = try!(SndFile::new(file.as_path(),OpenMode::Read)
+                                .map_err(|sfe| InitError::SndFile((sfe,i.clone()))));
+            let snd_info = snd_file.get_sndinfo();
+            if snd_info.samplerate as f64 != setting.sample_rate {
+                return Err(InitError::SampleRate(i.clone()));
+            }
+            if snd_info.channels != 1 && snd_info.channels != 2 {
+                return Err(InitError::Channels(i.clone()));
+            }
         }
     }
     for &(ref i,_) in &setting.effect {
@@ -887,6 +939,7 @@ fn test_complete_configuration() {
     use yaml_rust::yaml::YamlLoader;
 
     let s = Setting {
+        check_level: CheckLevel::Always,
         channels: 2,
         sample_rate: 44_100f64,
         frames_per_buffer: 64,
@@ -906,6 +959,7 @@ fn test_complete_configuration() {
     };
     let doc = YamlLoader::load_from_str(
 "---
+check_level: always
 channels: 2
 sample_rate: 44100.
 frames_per_buffer: 64
@@ -937,6 +991,7 @@ fn test_minimal_configuration() {
     use yaml_rust::yaml::YamlLoader;
 
     let s = Setting {
+        check_level: CheckLevel::Never,
         channels: 2,
         sample_rate: 44_100f64,
         frames_per_buffer: 64,
@@ -956,6 +1011,7 @@ fn test_minimal_configuration() {
     };
     let doc = YamlLoader::load_from_str(
 "---
+check_level: never
 channels: 2
 sample_rate: 44100.
 frames_per_buffer: 64
