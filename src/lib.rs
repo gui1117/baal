@@ -456,13 +456,18 @@ pub enum InitError {
     SndFile((sndfile::SndFileError,String)),
     /// samplerate of this file doesn't match the setting
     SampleRate(String),
-    /// channels of this file is incompatible with the setting
+    /// channels of this file cannot be handled properly: not 1 or 2
     Channels(String),
+    /// output channels cannot be handledis properly: not 1 or 2
+    OutputChannels,
     /// baal has already been initialiazed
     DoubleInit,
 }
 
 fn check_setting(setting: &Setting) -> Result<(),InitError> {
+    if setting.channels != 1 && setting.channels != 2 {
+        return Err(InitError::OutputChannels);
+    }
     for i in &setting.music {
         let file = Path::new(&setting.music_dir).join(Path::new(&i));
         let snd_file = try!(SndFile::new(file.as_path(),OpenMode::Read)
@@ -471,7 +476,7 @@ fn check_setting(setting: &Setting) -> Result<(),InitError> {
         if snd_info.samplerate as f64 != setting.sample_rate {
             return Err(InitError::SampleRate(i.clone()));
         }
-        if snd_info.channels != setting.channels {
+        if snd_info.channels != 1 && snd_info.channels != 2 {
             return Err(InitError::Channels(i.clone()));
         }
     }
@@ -483,7 +488,7 @@ fn check_setting(setting: &Setting) -> Result<(),InitError> {
         if snd_info.samplerate as f64 != setting.sample_rate {
             return Err(InitError::SampleRate(i.clone()));
         }
-        if snd_info.channels != setting.channels {
+        if snd_info.channels != 1 && snd_info.channels != 2 {
             return Err(InitError::Channels(i.clone()));
         }
     }
@@ -505,16 +510,15 @@ fn init_stream(setting: &Setting, receiver: Receiver<Msg>, abort_receiver: Recei
                 Path::new(&setting.effect_dir)
                 .join(Path::new(&name))
                 .as_path()
-                ,nbr as usize)
+                ,nbr as usize
+                ,setting.channels)
             )
         .collect();
 
-    let mut music = Music::new((setting.global_volume*setting.music_volume as f32),setting.music_loop);
+    let mut music = Music::new((setting.global_volume*setting.music_volume as f32),setting.music_loop,setting.channels);
 
-    let mut buffer_p: Vec<f32> = {
-        let buffer_size = (setting.channels as usize) * (setting.frames_per_buffer as usize);
-        (0..buffer_size).map(|i| i as f32).collect()
-    };
+    let mut buffer_one: Vec<f32> = (0..setting.frames_per_buffer).map(|i| i as f32).collect();
+    let mut buffer_two: Vec<f32> = (0..2*setting.frames_per_buffer).map(|i| i as f32).collect();
 
     let pa = try!(pa::PortAudio::new().map_err(|e| InitError::PortAudio(e)));
 
@@ -522,6 +526,9 @@ fn init_stream(setting: &Setting, receiver: Receiver<Msg>, abort_receiver: Recei
                         .map_err(|e| InitError::PortAudio(e)));
 
     let callback = move |pa::OutputStreamCallbackArgs { buffer, frames, .. }| {
+        // if the buffer set to 0 ?
+        for elt in buffer.iter_mut() { *elt = 0.; }
+
         let frames = frames as i64;
 
         while let Ok(msg) = receiver.try_recv() {
@@ -538,10 +545,10 @@ fn init_stream(setting: &Setting, receiver: Receiver<Msg>, abort_receiver: Recei
             }
         }
 
-        music.fill_buffer(buffer,frames);
+        music.fill_buffer(buffer, &mut buffer_one,&mut buffer_two, frames);
 
         for e in &mut effect {
-            e.fill_buffer(buffer,&mut buffer_p ,frames);
+            e.fill_buffer(buffer, &mut buffer_one, &mut buffer_two, frames);
         }
 
         pa::Continue
@@ -660,44 +667,112 @@ enum Msg {
     SetMusicLoop(bool),
 }
 
+#[derive(Debug,Clone,Copy)]
+enum ChannelConv {
+    TwoIntoOne,
+    OneIntoTwo,
+    TwoIntoTwo,
+    OneIntoOne,
+}
+
+impl ChannelConv {
+    fn from_channels(input: i32, output: i32) -> ChannelConv {
+        match input {
+            1 => match output {
+                1 => ChannelConv::OneIntoOne,
+                2 => ChannelConv::OneIntoTwo,
+                _ => panic!("intern error: sndfile channels is not 1 or 2")
+            },
+            2 => match output {
+                1 => ChannelConv::TwoIntoOne,
+                2 => ChannelConv::TwoIntoTwo,
+                _ => panic!("intern error: sndfile channels is not 1 or 2")
+            },
+            _ => panic!("intern error: output channels is not 1 or 2")
+        }
+    }
+
+    fn fill_buffer(&self, sndfile: &mut SndFile, volume: f32, buffer_output: &mut [f32], buffer_one: &mut [f32], buffer_two: &mut [f32], frames: i64) -> i64 {
+        match *self {
+            ChannelConv::TwoIntoOne => {
+                let frame = sndfile.readf_f32(buffer_two,frames);
+                for k in 0..buffer_output.len() {
+                    buffer_output[k] += (buffer_two[2*k]+buffer_two[2*k+1])/2.*volume;
+                }
+                frame
+            },
+            ChannelConv::TwoIntoTwo => {
+                let frame = sndfile.readf_f32(buffer_two,frames);
+                for k in 0..buffer_output.len() {
+                    buffer_output[k] += buffer_two[k]*volume;
+                }
+                frame
+            },
+            ChannelConv::OneIntoTwo => {
+                let frame = sndfile.readf_f32(buffer_one,frames);
+                for k in 0..buffer_one.len() {
+                    buffer_output[2*k] += buffer_one[k]*volume;
+                    buffer_output[2*k+1] += buffer_one[k]*volume;
+                }
+                frame
+            },
+            ChannelConv::OneIntoOne => {
+                let frame = sndfile.readf_f32(buffer_one,frames);
+                for k in 0..buffer_output.len() {
+                    buffer_output[k] += buffer_one[k]*volume;
+                }
+                frame
+            },
+        }
+    }
+}
+
 #[derive(Debug)]
 struct Effect {
     start: usize,
     end: usize,
     batch: Vec<SndFile>,
     volume: Vec<f32>,
+    channel_conv: ChannelConv,
 }
 
 impl Effect {
-    fn new(path: &Path, capacity: usize) -> Effect {
+    fn new(path: &Path, capacity: usize, output_channels: i32) -> Effect {
         let mut batch = Vec::with_capacity(capacity);
         let mut volume = Vec::with_capacity(capacity);
 
         for _ in 0..capacity {
-            batch.push(SndFile::new(path,OpenMode::Read).unwrap()); // unwrap because already checked by State
+            batch.push(SndFile::new(path,OpenMode::Read).unwrap()); // unwrap because already checked
             volume.push(0.);
         }
+
+        let channel_conv = ChannelConv::from_channels(batch[0].get_sndinfo().channels,output_channels);
 
         Effect {
             start: 0,
             end: 0,
             batch: batch,
             volume: volume,
+            channel_conv: channel_conv,
         }
     }
 
-    fn fill_buffer(&mut self, buffer: &mut [f32], buffer_p: &mut [f32], frames: i64) {
-        let range = if self.start <= self.end {
+    fn fill_buffer(&mut self, buffer_output: &mut [f32], buffer_one: &mut [f32], buffer_two: &mut [f32], frames: i64) {
+        let range = if self.start < self.end {
             (self.start..self.end).chain(0..0)
         } else {
             (0..self.end).chain(self.start..self.batch.len())
         };
 
         for i in range {
-            let frame = self.batch[i].readf_f32(buffer_p,frames);
-            for k in 0..buffer.len() {
-                buffer[k] += buffer_p[k]*self.volume[i];
-            }
+            let frame = self.channel_conv.fill_buffer(
+                &mut self.batch[i],
+                self.volume[i],
+                buffer_output,
+                buffer_one,
+                buffer_two,
+                frames);
+
             if frame == 0 {
                 self.start = (self.start+1).rem(self.batch.len());
             }
@@ -726,28 +801,35 @@ struct Music {
     pause: bool,
     volume: f32,
     looping: bool,
+    channel_conv: ChannelConv,
+    output_channels: i32,
 }
 
 impl Music {
-    fn new(volume: f32, looping: bool) -> Music {
+    fn new(volume: f32, looping: bool, output_channels: i32) -> Music {
         Music {
             snd_file: None,
             pause: false,
             volume: volume,
             looping: looping,
+            channel_conv: ChannelConv::OneIntoOne,
+            output_channels: output_channels,
         }
     }
 
-    fn fill_buffer(&mut self, buffer: &mut [f32], frames: i64) {
+    fn fill_buffer(&mut self, buffer_output: &mut [f32], buffer_one: &mut [f32], buffer_two: &mut [f32], frames: i64) {
         let destroy_snd_file = if let Some(ref mut snd_file) = self.snd_file {
             if self.pause {
-                for elt in buffer { *elt = 0.; }
                 false
             } else {
-                let frame = snd_file.readf_f32(buffer,frames);
-                for elt in buffer {
-                    *elt *= self.volume;
-                }
+                let frame = self.channel_conv.fill_buffer(
+                    snd_file,
+                    self.volume,
+                    buffer_output,
+                    buffer_one,
+                    buffer_two,
+                    frames);
+
                 if frame == 0 {
                     if self.looping {
                         snd_file.seek(0,SeekMode::SeekSet);
@@ -760,7 +842,6 @@ impl Music {
                 }
             }
         } else {
-            for elt in buffer { *elt = 0.; }
             false
         };
 
@@ -788,6 +869,7 @@ impl Music {
     }
 
     fn set_music(&mut self, snd_file: SndFile) {
+        self.channel_conv = ChannelConv::from_channels(snd_file.get_sndinfo().channels,self.output_channels);
         self.snd_file = Some(snd_file);
     }
 

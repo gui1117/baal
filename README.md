@@ -38,7 +38,7 @@ for more information about why not mp3 as lots of other foss handle it see [libs
 
 ##TODO 0.2
 
-* [ ] channels conversion
+* [x] channels conversion
 * [x] return result<(),Error..>
 * [x] reset method
 * [ ] travis.yml
