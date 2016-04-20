@@ -55,11 +55,11 @@ static mut RAW_STATE: *mut Mutex<State> = 0 as *mut Mutex<State>;
 #[derive(Clone,Debug,PartialEq)]
 /// set musics, effects, volumes and audio player.
 pub struct Setting {
-    /// number of channels: 1
+    /// number of channels: 1 or 2 only
     pub channels: i32,
     /// sample rate: mostly 44_100
     pub sample_rate: f64,
-    /// number of frame per buffer: 64
+    /// number of frame per buffer: 64 is good
     pub frames_per_buffer: u32,
 
     /// the base directory of effects
