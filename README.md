@@ -1,7 +1,4 @@
-#baal
-
-[![](http://meritbadge.herokuapp.com/baal)](https://crates.io/crates/baal)
-[![Build Status](https://travis-ci.org/thiolliere/baal.svg?branch=master)](https://travis-ci.org/thiolliere/baal)
+#baal [![](http://meritbadge.herokuapp.com/baal)](https://crates.io/crates/baal) [![Build Status](https://travis-ci.org/thiolliere/baal.svg?branch=master)](https://travis-ci.org/thiolliere/baal)
 
 BAsic Audio Library
 
