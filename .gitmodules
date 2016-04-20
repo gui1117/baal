@@ -1,3 +1,0 @@
-[submodule "src/rust-sndfile"]
-	path = src/rust-sndfile
-	url = https://thiolliere@github.com/thiolliere/rust-sndfile
