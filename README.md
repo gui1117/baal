@@ -37,14 +37,6 @@ for more information about why not mp3 as lots of other foss handle it see [libs
   If this fails please let us know!
   In the mean-time, you can manually download and install [PortAudio](http://www.portaudio.com/download.html) yourself.
 
-##TODO
-
-* [ ] replace lock by reader/writer lock
-* [ ] implement serde::serialize and serde::deserialize
-* [ ] third time of sound: long effect -> return id on creation and position can be updated
-* [ ] spatialization on option using openAL
-* [ ] emscripten support with webaudio (when rustup support emscripten cross compilation)
-
 ## License
 
 Licensed under either of
