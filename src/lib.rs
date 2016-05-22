@@ -44,7 +44,7 @@ mod sndfile;
 
 use yaml_rust::yaml::Yaml;
 use std::sync::mpsc::{Sender, Receiver, channel};
-use std::sync::Mutex;
+use std::sync::RwLock;
 use sndfile::{SndFile, OpenMode, SeekMode};
 use portaudio as pa;
 use std::thread;
@@ -52,7 +52,7 @@ use std::path::{Path, PathBuf};
 use std::ops::Rem;
 use effect::DistanceModel;
 
-static mut RAW_STATE: *mut Mutex<State> = 0 as *mut Mutex<State>;
+static mut RAW_STATE: *mut RwLock<State> = 0 as *mut RwLock<State>;
 
 /// check at init if all music are OK
 /// otherwise it may panic when playing the music
@@ -282,20 +282,20 @@ pub mod effect {
     /// set the volume of sound effects
     /// take effect for future sounds effects only
     pub fn set_volume(v: f32) {
-        let mut state = unsafe { (*RAW_STATE).lock().unwrap() };
+        let mut state = unsafe { (*RAW_STATE).write().unwrap() };
         state.effect_volume = v;
     }
 
     /// get the volume of sound effects
     pub fn volume() -> f32 {
-        let state = unsafe { (*RAW_STATE).lock().unwrap() };
+        let state = unsafe { (*RAW_STATE).read().unwrap() };
         state.effect_volume
     }
 
     /// play the sound effect at the volume: `global_volume * effect_volume *
     /// distance([x,y,z],listener_position)`
     pub fn play(effect: usize, pos: &[f64;3]) {
-        let state = unsafe { (*RAW_STATE).lock().unwrap() };
+        let state = unsafe { (*RAW_STATE).read().unwrap() };
         let volume = state.global_volume * state.effect_volume * state.distance_model.distance(pos,&state.listener);
         if volume > 0. {
             state.sender.send(Msg::PlayEffect(effect,volume)).unwrap();
@@ -304,26 +304,26 @@ pub mod effect {
 
     /// stop all sound effects
     pub fn stop_all() {
-        let state = unsafe { (*RAW_STATE).lock().unwrap() };
+        let state = unsafe { (*RAW_STATE).read().unwrap() };
         state.sender.send(Msg::StopEffect).unwrap();
     }
 
     /// set the position of the listener
     pub fn set_listener(x: f64, y: f64, z: f64) {
-        let mut state = unsafe { (*RAW_STATE).lock().unwrap() };
+        let mut state = unsafe { (*RAW_STATE).write().unwrap() };
         state.listener = [x,y,z];
     }
 
     /// return the position of the listener
     pub fn listener() -> [f64;3] {
-        let state = unsafe { (*RAW_STATE).lock().unwrap() };
+        let state = unsafe { (*RAW_STATE).read().unwrap() };
         state.listener
     }
 
     /// set the distance model
     /// take effect for future sounds effects only
     pub fn set_distance_model(d: DistanceModel) {
-        let mut state = unsafe { (*RAW_STATE).lock().unwrap() };
+        let mut state = unsafe { (*RAW_STATE).write().unwrap() };
         state.distance_model = d;
     }
 
@@ -397,26 +397,26 @@ pub mod music {
     /// set the volume of the music
     /// the actual music volume is `music_volume * global_volume`
     pub fn set_volume(v: f32) {
-        let mut state = unsafe { (*RAW_STATE).lock().unwrap() };
+        let mut state = unsafe { (*RAW_STATE).write().unwrap() };
         state.music_volume = v;
         state.sender.send(Msg::SetMusicVolume(state.music_volume*state.global_volume)).unwrap();
     }
 
     /// get the volume of the music
     pub fn volume() -> f32 {
-        let state = unsafe { (*RAW_STATE).lock().unwrap() };
+        let state = unsafe { (*RAW_STATE).read().unwrap() };
         state.music_volume
     }
 
     /// seek the music to a given frame
     pub fn seek(frame: i64) {
-        let state = unsafe { (*RAW_STATE).lock().unwrap() };
+        let state = unsafe { (*RAW_STATE).read().unwrap() };
         state.sender.send(Msg::SeekMusic(frame)).unwrap();
     }
 
     /// play the music
     pub fn play(music: usize) {
-        let mut state = unsafe { (*RAW_STATE).lock().unwrap() };
+        let mut state = unsafe { (*RAW_STATE).write().unwrap() };
 
         state.music_status.pause = false;
         state.music_status.id = Some(music);
@@ -426,21 +426,21 @@ pub mod music {
 
     /// pause the music
     pub fn pause() {
-        let mut state = unsafe { (*RAW_STATE).lock().unwrap() };
+        let mut state = unsafe { (*RAW_STATE).write().unwrap() };
         state.music_status.pause = true;
         state.sender.send(Msg::PauseMusic).unwrap();
     }
 
     /// resume the music
     pub fn resume() {
-        let mut state = unsafe { (*RAW_STATE).lock().unwrap() };
+        let mut state = unsafe { (*RAW_STATE).write().unwrap() };
         state.music_status.pause = false;
         state.sender.send(Msg::ResumeMusic).unwrap();
     }
 
     /// stop the music
     pub fn stop() {
-        let mut state = unsafe { (*RAW_STATE).lock().unwrap() };
+        let mut state = unsafe { (*RAW_STATE).write().unwrap() };
         state.music_status.pause = false;
         state.music_status.id = None;
         state.sender.send(Msg::StopMusic).unwrap();
@@ -448,20 +448,20 @@ pub mod music {
 
     /// return the current status of the music
     pub fn status() -> MusicStatus {
-        let state = unsafe { (*RAW_STATE).lock().unwrap() };
+        let state = unsafe { (*RAW_STATE).read().unwrap() };
         state.music_status
     }
 
     /// set whereas music loop or not
     pub fn set_loop(l: bool) {
-        let mut state = unsafe { (*RAW_STATE).lock().unwrap() };
+        let mut state = unsafe { (*RAW_STATE).write().unwrap() };
         state.music_status.looping = l;
         state.sender.send(Msg::SetMusicLoop(l)).unwrap();
     }
 
     /// return whereas music loop or not.
     pub fn is_looping() -> bool {
-        let state = unsafe { (*RAW_STATE).lock().unwrap() };
+        let state = unsafe { (*RAW_STATE).read().unwrap() };
         state.music_status.looping
     }
 
@@ -480,20 +480,20 @@ use music::MusicStatus;
 
 /// set the global volume
 pub fn set_volume(v: f32) {
-        let mut state = unsafe { (*RAW_STATE).lock().unwrap() };
+        let mut state = unsafe { (*RAW_STATE).write().unwrap() };
     state.global_volume = v;
     state.sender.send(Msg::SetMusicVolume(state.music_volume*state.global_volume)).unwrap();
 }
 
 /// get the global volume
 pub fn volume() -> f32 {
-        let state = unsafe { (*RAW_STATE).lock().unwrap() };
+        let state = unsafe { (*RAW_STATE).read().unwrap() };
     state.global_volume
 }
 
 /// stop music and effects
 pub fn stop() {
-        let state = unsafe { (*RAW_STATE).lock().unwrap() };
+        let state = unsafe { (*RAW_STATE).read().unwrap() };
     state.sender.send(Msg::StopMusic).unwrap();
     state.sender.send(Msg::StopEffect).unwrap();
 }
@@ -552,7 +552,7 @@ fn init_state(setting: &Setting, sender: Sender<Msg>, abort_sender: Sender<()>) 
     let state = State::from_setting(&setting,sender,abort_sender);
 
     unsafe {
-        let box_state = Box::new(Mutex::new(state));
+        let box_state = Box::new(RwLock::new(state));
         RAW_STATE = Box::into_raw(box_state);
     }
 }
@@ -641,10 +641,10 @@ pub fn close() {
     unsafe {
         if !RAW_STATE.is_null() {
             let mutex_state = Box::from_raw(RAW_STATE);
-            let state = mutex_state.lock().unwrap();
+            let state = mutex_state.read().unwrap();
             state.abort_sender.send(()).unwrap();
         }
-        RAW_STATE = 0 as *mut Mutex<State>;
+        RAW_STATE = 0 as *mut RwLock<State>;
     }
 }
 
@@ -662,7 +662,7 @@ pub fn reset(setting: &Setting) -> Result<(),InitError> {
     // drop old state
     {
         let old_mutex_state = unsafe { Box::from_raw(old_raw_state) };
-        let old_state = old_mutex_state.lock().unwrap();
+        let old_state = old_mutex_state.read().unwrap();
         old_state.abort_sender.send(()).unwrap();
     }
 
