@@ -168,7 +168,7 @@ impl Setting {
                 "always" | "Always" => CheckLevel::Always,
                 "debug" | "Debug" => CheckLevel::Debug,
                 "never" | "Never" => CheckLevel::Never,
-                _ => return Err("check level is not a correct enum".into()),
+                _ => return Err("check level must be always debug or never".into()),
             }
         };
 
@@ -184,7 +184,7 @@ impl Setting {
                 "pow2" | "Pow2" => DistanceModel::Pow2(
                     try!(vec[1].as_f64().ok_or_else(|| "exponential distance model second element must be a float")),
                     try!(vec[2].as_f64().ok_or_else(|| "exponential distance model third element must be a float"))),
-                _ => return Err("distance model first element is not a correct enum".into()),
+                _ => return Err("distance model first element must be linear or pow2".into()),
             }
         };
 
@@ -219,48 +219,48 @@ impl Setting {
             } else if key.is_null() {
                 vec!()
             } else {
-                return Err("music must a list or null".into());
+                return Err("music must be a list or null".into());
             }
         };
 
         Ok(Setting {
             channels: try!(try!(hash.get(&Yaml::String(String::from("channels")))
                 .ok_or_else(|| "config map must have a channels key")).as_i64()
-                .ok_or_else(|| "channels must be integer")) as i32,
+                .ok_or_else(|| "channels must be an integer")) as i32,
 
             sample_rate: try!(try!(hash.get(&Yaml::String(String::from("sample_rate")))
                 .ok_or_else(|| "config map must have a sample_rate key")).as_f64()
-                .ok_or_else(|| "sample_rate must be float")),
+                .ok_or_else(|| "sample_rate must be a float")),
 
             frames_per_buffer: try!(try!(hash.get(&Yaml::String(String::from("frames_per_buffer")))
                 .ok_or_else(|| "config map must have a frames_per_buffer key")).as_i64()
-                .ok_or_else(|| "frames_per_buffer must be integer")) as u32,
+                .ok_or_else(|| "frames_per_buffer must be an integer")) as u32,
 
             music_dir: String::from(try!(try!(hash.get(&Yaml::String(String::from("music_dir")))
                 .ok_or_else(|| "config map must have a music_dir key")).as_str()
-                .ok_or_else(|| "music_dir must be string"))),
+                .ok_or_else(|| "music_dir must be a string"))),
 
             effect_dir: String::from(try!(try!(hash.get(&Yaml::String(String::from("effect_dir")))
                 .ok_or_else(|| "config map must have a effect_dir key")).as_str()
-                .ok_or_else(|| "effect_dir must be string"))),
+                .ok_or_else(|| "effect_dir must be a string"))),
 
             global_volume: try!(try!(hash.get(&Yaml::String(String::from("global_volume")))
                 .ok_or_else(|| "config map must have a global_volume key")).as_f64()
-                .ok_or_else(|| "global volume must be float")) as f32,
+                .ok_or_else(|| "global volume must be a float")) as f32,
 
             music_volume: try!(try!(hash.get(&Yaml::String(String::from("music_volume")))
                 .ok_or_else(|| "config map must have a music_volume key")).as_f64()
-                .ok_or_else(|| "music volume must be float")) as f32,
+                .ok_or_else(|| "music volume must be a float")) as f32,
 
             effect_volume: try!(try!(hash.get(&Yaml::String(String::from("effect_volume")))
                 .ok_or_else(|| "config map must have a effect_volume key")).as_f64()
-                .ok_or_else(|| "effect volume must be float")) as f32,
+                .ok_or_else(|| "effect volume must be a float")) as f32,
 
             distance_model: distance_model,
 
             music_loop: try!(try!(hash.get(&Yaml::String(String::from("music_loop")))
                 .ok_or_else(|| "config map must have a music_loop key")).as_bool()
-                .ok_or_else(|| "music_loop must be bool")),
+                .ok_or_else(|| "music_loop must be a bool")),
 
             effect: effect,
             music: music,
