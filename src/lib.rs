@@ -36,8 +36,8 @@
 
 #![warn(missing_docs)]
 
-#[macro_use]
-extern crate yaml_rust;
+/// crate for parsing yaml
+#[macro_use] pub extern crate yaml_rust;
 extern crate portaudio;
 
 mod sndfile;

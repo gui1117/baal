@@ -5,7 +5,7 @@
 * [ ] music playlist and transition
 * [ ] ¿implement serde::serialize and serde::deserialize?
 * [ ] ¿third kind of sound: long effect -> return id on creation and position can be updated?
-* [ ] reexport yaml-rust
+* [x] reexport yaml-rust
 * [ ] let device index being configurable
 
 ### low priority
