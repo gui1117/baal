@@ -14,9 +14,12 @@
 ##THOUGHT
 
 transition can be smooth(dt), overlap(dt), instant
+
 callback when music end so user can implement whatever he want
 -> bad, this method is called in the critic part
+
 music status have a field stop
+
 rewrite the music module
 
 ```
