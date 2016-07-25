@@ -41,11 +41,12 @@
 extern crate portaudio;
 
 mod sndfile;
+pub use sndfile::SeekMode;
 
 use yaml_rust::yaml::Yaml;
 use std::sync::mpsc::{Sender, Receiver, channel};
 use std::sync::RwLock;
-use sndfile::{SndFile, OpenMode, SeekMode};
+use sndfile::{SndFile, OpenMode};
 use portaudio as pa;
 use std::thread;
 use std::path::{Path, PathBuf};
@@ -111,6 +112,9 @@ pub struct Setting {
     /// whereas the music must loop or not
     pub music_loop: bool,
 
+    /// the kind of transition between musics
+    pub music_transition: music::MusicTransition,
+
     /// the list of effect, and number of loading of each, correspond
     /// to the number of effect playable at the same time
     /// for example a sword that can be played up to 10 times at the same time ("sword.ogg",10)
@@ -146,6 +150,7 @@ impl Setting {
     ///
     /// distance_model: [pow2,10.,110.]
     /// music_loop: true
+    /// music_transition: [instant]
     ///
     /// effect:
     ///     - [shoot.ogg,10]
@@ -185,6 +190,21 @@ impl Setting {
                     try!(vec[1].as_f64().ok_or_else(|| "exponential distance model second element must be a float")),
                     try!(vec[2].as_f64().ok_or_else(|| "exponential distance model third element must be a float"))),
                 _ => return Err("distance model first element must be linear or pow2".into()),
+            }
+        };
+
+        let music_transition = {
+            let vec = try!(try!(hash.get(&Yaml::String(String::from("music_transition")))
+                .ok_or_else(|| "config map must have music_transition key")).as_vec()
+                .ok_or_else(|| "distance model must be vector"));
+
+            match try!(vec[0].as_str().ok_or_else(|| "music transition first element must be the string of the enum")) {
+                "overlap" | "Overlap" => MusicTransition::Overlap(
+                    try!(vec[1].as_i64().ok_or_else(|| "overlap music transition second element must be an integer"))),
+                "smooth" | "Smooth" => MusicTransition::Smooth(
+                    try!(vec[1].as_i64().ok_or_else(|| "smooth music transition second element must be an integer"))),
+                "instant" | "Instant" => MusicTransition::Instant,
+                _ => return Err("music transition first element must be overlap instant or smooth".into()),
             }
         };
 
@@ -261,6 +281,8 @@ impl Setting {
             music_loop: try!(try!(hash.get(&Yaml::String(String::from("music_loop")))
                 .ok_or_else(|| "config map must have a music_loop key")).as_bool()
                 .ok_or_else(|| "music_loop must be a bool")),
+
+            music_transition: music_transition,
 
             effect: effect,
             music: music,
@@ -409,91 +431,126 @@ pub mod music {
     }
 
     /// seek the music to a given frame
-    pub fn seek(frame: i64) {
+    pub fn seek(frame: i64, mode: super::SeekMode) {
         let state = unsafe { (*RAW_STATE).read().unwrap() };
-        state.sender.send(Msg::SeekMusic(frame)).unwrap();
+        state.sender.send(Msg::SeekMusic(frame,mode)).unwrap();
     }
 
     /// play the music
     pub fn play(music: usize) {
         let mut state = unsafe { (*RAW_STATE).write().unwrap() };
 
-        state.music_status.pause = false;
-        state.music_status.id = Some(music);
+        state.music_index = Some(music);
         let snd_file = SndFile::new(&state.music[music],OpenMode::Read).unwrap();
         state.sender.send(Msg::PlayMusic(snd_file)).unwrap();
     }
 
     /// pause the music
     pub fn pause() {
-        let mut state = unsafe { (*RAW_STATE).write().unwrap() };
-        state.music_status.pause = true;
+        let state = unsafe { (*RAW_STATE).read().unwrap() };
         state.sender.send(Msg::PauseMusic).unwrap();
     }
 
     /// resume the music
     pub fn resume() {
-        let mut state = unsafe { (*RAW_STATE).write().unwrap() };
-        state.music_status.pause = false;
+        let state = unsafe { (*RAW_STATE).read().unwrap() };
         state.sender.send(Msg::ResumeMusic).unwrap();
     }
 
     /// stop the music
     pub fn stop() {
         let mut state = unsafe { (*RAW_STATE).write().unwrap() };
-        state.music_status.pause = false;
-        state.music_status.id = None;
+        state.music_index = None;
         state.sender.send(Msg::StopMusic).unwrap();
     }
 
     /// return the current status of the music
+    ///
+    /// note that music status is updated on audio output call
+    /// so there is a delay between calling fn play(_) and
+    /// having the status updated
     pub fn status() -> MusicStatus {
-        let state = unsafe { (*RAW_STATE).read().unwrap() };
+        let mut state = unsafe { (*RAW_STATE).write().unwrap() };
+        //TODO
+        while let Ok(status) = state.music_status_receiver.try_recv() {
+            state.music_status = status;
+        }
         state.music_status
     }
 
-    /// set whereas music loop or not
-    pub fn set_loop(l: bool) {
+    /// set whereas music loops or not
+    pub fn set_looping(l: bool) {
         let mut state = unsafe { (*RAW_STATE).write().unwrap() };
-        state.music_status.looping = l;
+        state.music_looping = l;
         state.sender.send(Msg::SetMusicLoop(l)).unwrap();
     }
 
     /// return whereas music loop or not.
     pub fn is_looping() -> bool {
         let state = unsafe { (*RAW_STATE).read().unwrap() };
-        state.music_status.looping
+        state.music_looping
+    }
+
+    /// return the current type of transition
+    pub fn transition() -> MusicTransition {
+        let state = unsafe { (*RAW_STATE).read().unwrap() };
+        state.music_transition
+    }
+
+    /// set the type of transition between musics
+    pub fn set_transition(trans: MusicTransition) {
+        let mut state = unsafe { (*RAW_STATE).write().unwrap() };
+        state.music_transition = trans;
+        state.sender.send(Msg::SetMusicTransition(trans)).unwrap();
+    }
+
+    /// return the index of the current music if any
+    pub fn index() -> Option<usize> {
+        let state = unsafe { (*RAW_STATE).read().unwrap() };
+        state.music_index
     }
 
     /// the status of the music
     #[derive(Clone,Copy,Debug,PartialEq)]
-    pub struct MusicStatus {
-        /// the Id of the music played if any
-        pub id: Option<usize>,
-        /// whereas the music is paused
-        pub pause: bool,
-        /// whereas the music is looping
-        pub looping: bool,
+    pub enum MusicStatus {
+        /// the music is paused
+        Pause,
+        /// there is no music
+        Stop,
+        /// the music is played
+        Play,
+    }
+
+    /// the type of transition between musics
+    #[derive(Clone,Copy,Debug,PartialEq)]
+    pub enum MusicTransition {
+        /// the current music end smoothly and then the new one is played.
+        Smooth(i64),
+        /// the current music end smoothly while the new one begin smoothly.
+        Overlap(i64),
+        /// the current music is stopped and the new one is played.
+        Instant,
     }
 }
 use music::MusicStatus;
+use music::MusicTransition;
 
 /// set the global volume
 pub fn set_volume(v: f32) {
-        let mut state = unsafe { (*RAW_STATE).write().unwrap() };
+    let mut state = unsafe { (*RAW_STATE).write().unwrap() };
     state.global_volume = v;
     state.sender.send(Msg::SetMusicVolume(state.music_volume*state.global_volume)).unwrap();
 }
 
 /// get the global volume
 pub fn volume() -> f32 {
-        let state = unsafe { (*RAW_STATE).read().unwrap() };
+    let state = unsafe { (*RAW_STATE).read().unwrap() };
     state.global_volume
 }
 
 /// stop music and effects
 pub fn stop() {
-        let state = unsafe { (*RAW_STATE).read().unwrap() };
+    let state = unsafe { (*RAW_STATE).read().unwrap() };
     state.sender.send(Msg::StopMusic).unwrap();
     state.sender.send(Msg::StopEffect).unwrap();
 }
@@ -525,7 +582,7 @@ fn check_setting(setting: &Setting) -> Result<(),InitError> {
             let snd_file = try!(SndFile::new(file.as_path(),OpenMode::Read)
                                 .map_err(|sfe| InitError::SndFile((sfe,i.clone()))));
             let snd_info = snd_file.get_sndinfo();
-            if snd_info.samplerate as f64 != setting.sample_rate {
+            if snd_info.samplerate as f64 - setting.sample_rate < std::f64::EPSILON {
                 return Err(InitError::SampleRate(i.clone()));
             }
             if snd_info.channels != 1 && snd_info.channels != 2 {
@@ -538,7 +595,7 @@ fn check_setting(setting: &Setting) -> Result<(),InitError> {
         let snd_file = try!(SndFile::new(file.as_path(),OpenMode::Read)
                             .map_err(|sfe| InitError::SndFile((sfe,i.clone()))));
         let snd_info = snd_file.get_sndinfo();
-        if snd_info.samplerate as f64 != setting.sample_rate {
+        if snd_info.samplerate as f64 - setting.sample_rate < std::f64::EPSILON {
             return Err(InitError::SampleRate(i.clone()));
         }
         if snd_info.channels != 1 && snd_info.channels != 2 {
@@ -548,8 +605,8 @@ fn check_setting(setting: &Setting) -> Result<(),InitError> {
     Ok(())
 }
 
-fn init_state(setting: &Setting, sender: Sender<Msg>, abort_sender: Sender<()>) {
-    let state = State::from_setting(&setting,sender,abort_sender);
+fn init_state(setting: &Setting, music_status_receiver: Receiver<MusicStatus>, sender: Sender<Msg>, abort_sender: Sender<()>) {
+    let state = State::from_setting(setting,music_status_receiver,sender,abort_sender);
 
     unsafe {
         let box_state = Box::new(RwLock::new(state));
@@ -557,7 +614,7 @@ fn init_state(setting: &Setting, sender: Sender<Msg>, abort_sender: Sender<()>) 
     }
 }
 
-fn init_stream(setting: &Setting, receiver: Receiver<Msg>, abort_receiver: Receiver<()>) -> Result<(), InitError> {
+fn init_stream(setting: &Setting, music_status_sender: Sender<MusicStatus>, receiver: Receiver<Msg>, abort_receiver: Receiver<()>) -> Result<(), InitError> {
     let mut effect: Vec<Effect> = setting.effect.iter()
         .map(|&(ref name,nbr)| Effect::new(
                 Path::new(&setting.effect_dir)
@@ -568,15 +625,15 @@ fn init_stream(setting: &Setting, receiver: Receiver<Msg>, abort_receiver: Recei
             )
         .collect();
 
-    let mut music = Music::new((setting.global_volume*setting.music_volume as f32),setting.music_loop,setting.channels);
+    let mut music = Music::new((setting.global_volume*setting.music_volume as f32),setting.music_loop,setting.music_transition,setting.channels,music_status_sender);
 
     let mut buffer_one: Vec<f32> = (0..setting.frames_per_buffer).map(|i| i as f32).collect();
     let mut buffer_two: Vec<f32> = (0..2*setting.frames_per_buffer).map(|i| i as f32).collect();
 
-    let pa = try!(pa::PortAudio::new().map_err(|e| InitError::PortAudio(e)));
+    let pa = try!(pa::PortAudio::new().map_err(InitError::PortAudio));
 
     let settings = try!(pa.default_output_stream_settings(setting.channels, setting.sample_rate, setting.frames_per_buffer)
-                        .map_err(|e| InitError::PortAudio(e)));
+                        .map_err(InitError::PortAudio));
 
     let callback = move |pa::OutputStreamCallbackArgs { buffer, frames, .. }| {
         // if the buffer set to 0 ?
@@ -591,10 +648,11 @@ fn init_stream(setting: &Setting, receiver: Receiver<Msg>, abort_receiver: Recei
                 Msg::PlayMusic(snd_file) => music.set_music(snd_file),
                 Msg::PauseMusic => music.pause(),
                 Msg::ResumeMusic => music.resume(),
-                Msg::SeekMusic(frame) => music.seek(frame),
+                Msg::SeekMusic(frame,mode) => music.seek(frame,mode),
                 Msg::StopMusic => music.stop(),
                 Msg::StopEffect => for e in &mut effect { e.stop(); },
                 Msg::SetMusicLoop(l) => music.set_loop(l),
+                Msg::SetMusicTransition(trans) => music.set_transition(trans),
             }
         }
 
@@ -628,10 +686,11 @@ pub fn init(setting: &Setting) -> Result<(), InitError> {
 
     let (sender,receiver) = channel();
     let (abort_sender,abort_receiver) = channel();
+    let (music_status_sender, music_status_receiver) = channel();
 
-    init_state(setting, sender, abort_sender);
+    init_state(setting, music_status_receiver, sender, abort_sender);
 
-    try!(init_stream(setting, receiver, abort_receiver));
+    try!(init_stream(setting, music_status_sender, receiver, abort_receiver));
 
     Ok(())
 }
@@ -654,10 +713,11 @@ pub fn reset(setting: &Setting) -> Result<(),InitError> {
 
     let (sender,receiver) = channel();
     let (abort_sender,abort_receiver) = channel();
+    let (music_status_sender, music_status_receiver) = channel();
 
     let old_raw_state = unsafe { RAW_STATE };
 
-    init_state(setting, sender, abort_sender);
+    init_state(setting, music_status_receiver, sender, abort_sender);
 
     // drop old state
     {
@@ -666,12 +726,16 @@ pub fn reset(setting: &Setting) -> Result<(),InitError> {
         old_state.abort_sender.send(()).unwrap();
     }
 
-    try!(init_stream(setting, receiver, abort_receiver));
+    try!(init_stream(setting, music_status_sender, receiver, abort_receiver));
     Ok(())
 }
 
 struct State {
+    music_looping: bool,
     music_status: MusicStatus,
+    music_index: Option<usize>,
+    music_transition: MusicTransition,
+    music_status_receiver: Receiver<MusicStatus>,
     sender: Sender<Msg>,
     abort_sender: Sender<()>,
     listener: [f64;3],
@@ -683,21 +747,19 @@ struct State {
 }
 
 impl State {
-    fn from_setting(s: &Setting,sender: Sender<Msg>,abort_sender: Sender<()>) -> State {
+    fn from_setting(s: &Setting,music_status_receiver: Receiver<MusicStatus>, sender: Sender<Msg>,abort_sender: Sender<()>) -> State {
         let music_dir = Path::new(&s.music_dir);
         let music: Vec<PathBuf> = s.music.iter().map(|name| music_dir.join(Path::new(&name))).collect();
 
-        let music_status = MusicStatus {
-            looping: s.music_loop,
-            pause: false,
-            id: None,
-        };
-
         State {
+            music_looping: s.music_loop,
+            music_status: MusicStatus::Stop,
+            music_index: None,
+            music_transition: s.music_transition,
+            music_status_receiver: music_status_receiver,
             sender: sender,
             abort_sender: abort_sender,
             listener: [0.,0.,0.],
-            music_status: music_status,
             distance_model: s.distance_model.clone(),
             global_volume: s.global_volume,
             music_volume: s.music_volume,
@@ -713,7 +775,8 @@ enum Msg {
     SetMusicVolume(f32),
     PauseMusic,
     ResumeMusic,
-    SeekMusic(i64),
+    SetMusicTransition(MusicTransition),
+    SeekMusic(i64,SeekMode),
     StopMusic,
     PlayEffect(usize,f32),
     StopEffect,
@@ -850,7 +913,11 @@ impl Effect {
 
 #[derive(Debug)]
 struct Music {
+    status_sender: Sender<MusicStatus>,
     snd_file: Option<SndFile>,
+    transitional_snd_file: Option<SndFile>,
+    transition_frame: i64,
+    transition_type: MusicTransition,
     pause: bool,
     volume: f32,
     looping: bool,
@@ -859,71 +926,111 @@ struct Music {
 }
 
 impl Music {
-    fn new(volume: f32, looping: bool, output_channels: i32) -> Music {
+    fn new(volume: f32, looping: bool, transition: MusicTransition, output_channels: i32, status_sender: Sender<MusicStatus>) -> Music {
         Music {
+            status_sender: status_sender,
             snd_file: None,
+            transitional_snd_file: None,
             pause: false,
             volume: volume,
             looping: looping,
+            transition_type: transition,
+            transition_frame: 0,
             channel_conv: ChannelConv::OneIntoOne,
             output_channels: output_channels,
         }
     }
 
     fn fill_buffer(&mut self, buffer_output: &mut [f32], buffer_one: &mut [f32], buffer_two: &mut [f32], frames: i64) {
-        let destroy_snd_file = if let Some(ref mut snd_file) = self.snd_file {
-            if self.pause {
-                false
-            } else {
-                let frame = self.channel_conv.fill_buffer(
-                    snd_file,
-                    self.volume,
-                    buffer_output,
-                    buffer_one,
-                    buffer_two,
-                    frames);
+        if self.pause { return; }
 
-                if frame == 0 {
-                    if self.looping {
-                        snd_file.seek(0,SeekMode::SeekSet);
-                        false
-                    } else {
-                        true
-                    }
-                } else {
+        let destroy_snd_file = if let Some(ref mut snd_file) = self.snd_file {
+            let volume = if self.transitional_snd_file.is_some() {
+                let transition_frames = match self.transition_type {
+                    MusicTransition::Instant => panic!("music transition is instant and there is a transitional snd file"),
+                    MusicTransition::Overlap(t) | MusicTransition::Smooth(t) => t,
+                };
+                self.volume * self.transition_frame as f32 / transition_frames as f32
+            } else {
+                self.volume
+            };
+
+            let frame = self.channel_conv.fill_buffer(snd_file, volume, buffer_output, buffer_one, buffer_two, frames);
+
+            if frame == 0 {
+                if self.looping {
+                    snd_file.seek(0,SeekMode::SeekSet);
                     false
-                }
-            }
-        } else {
-            false
-        };
+                } else { true }
+            } else { false }
+        } else { false };
 
         if destroy_snd_file {
+            let _ = self.status_sender.send(MusicStatus::Stop);
             self.snd_file = None;
         }
+
+        let destroy_transitional_snd_file = if let Some(ref mut snd_file) = self.transitional_snd_file {
+            let transition_frames = match self.transition_type {
+                MusicTransition::Instant => panic!("music transition is instant and there is a transitional snd file"),
+                MusicTransition::Overlap(t) | MusicTransition::Smooth(t) => t,
+            };
+
+            let volume = self.volume * (1. - self.transition_frame as f32 / transition_frames as f32);
+            let frame = self.channel_conv.fill_buffer(snd_file, volume, buffer_output, buffer_one, buffer_two, frames);
+
+            self.transition_frame += frame;
+            self.transition_frame < transition_frames || frame == 0
+        } else { false };
+
+        if destroy_transitional_snd_file { self.transitional_snd_file = None };
+    }
+
+    fn set_transition(&mut self, trans: MusicTransition) {
+        if let MusicTransition::Instant = trans {
+            self.transitional_snd_file = None;
+        }
+        self.transition_type = trans;
     }
 
     fn stop(&mut self) {
+        let _ = self.status_sender.send(MusicStatus::Stop);
         self.snd_file = None;
     }
 
     fn pause(&mut self) {
+        if self.snd_file.is_some() {
+            let _ = self.status_sender.send(MusicStatus::Pause);
+        }
         self.pause = true;
     }
 
     fn resume(&mut self) {
+        if self.snd_file.is_some() {
+            let _ = self.status_sender.send(MusicStatus::Play);
+        }
         self.pause = false;
     }
 
-    fn seek(&mut self, frame: i64) {
+    fn seek(&mut self, frame: i64, mode: SeekMode) {
         if let Some(ref mut snd_file) = self.snd_file {
-            snd_file.seek(frame,SeekMode::SeekSet);
+            snd_file.seek(frame,mode);
         }
     }
 
     fn set_music(&mut self, snd_file: SndFile) {
+        let _ = self.status_sender.send(MusicStatus::Play);
         self.channel_conv = ChannelConv::from_channels(snd_file.get_sndinfo().channels,self.output_channels);
-        self.snd_file = Some(snd_file);
+        match self.transition_type {
+            MusicTransition::Instant => {
+                self.snd_file = Some(snd_file);
+            },
+            MusicTransition::Smooth(_) | MusicTransition::Overlap(_) => {
+                self.transitional_snd_file = self.snd_file.take();
+                self.snd_file = Some(snd_file);
+                self.transition_frame = 0;
+            }
+        }
     }
 
     fn set_loop(&mut self, looping: bool) {
