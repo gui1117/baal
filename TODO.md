@@ -11,6 +11,7 @@
 * [ ] no longer status for music but music::play use music id, transition and bool (if restart if already in play)
 * [ ] maybe no longer state in mutex: just channels
 * [ ] update doc
+* [ ] no check level but a method on setting
 
 * three kind of sound: music, sound, long sound
   it would complicate the api
