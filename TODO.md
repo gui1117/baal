@@ -6,9 +6,11 @@
 * [x] reexport yaml-rust
 * [x] status() -> Status // receive stop message from thread TOTEST
 * [ ] ¿implement serde::serialize and serde::deserialize?
-* [ ] ¿third kind of sound: long effect -> return id on creation and position can be updated?
-* [ ] ¿let device index being configurable + method to list them?
-* [ ] derive decodable
+* [ ] third kind of sound: long effect -> return id on creation and position can be updated
+* [ ] no longer use yaml-rust but derive decodable if possible
+* [ ] no longer status for music but music::play use music id, transition and bool (if restart if already in play)
+* [ ] maybe no longer state in mutex: just channels
+* [ ] update doc
 
 * three kind of sound: music, sound, long sound
   it would complicate the api
