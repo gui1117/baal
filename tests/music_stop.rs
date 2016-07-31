@@ -3,10 +3,11 @@ extern crate baal;
 use std::thread;
 use std::time::Duration;
 
-fn main() {
+#[test]
+fn test() {
     let setting = baal::Setting {
-        channels: 2,
-        sample_rate: 44100.,
+        channels: 1,
+        sample_rate: 44100.0,
         frames_per_buffer: 64,
 
         effect_dir: "assets/effects".into(),
@@ -18,26 +19,20 @@ fn main() {
 
         distance_model: baal::effect::DistanceModel::Linear(10.,110.),
 
-        music_loop: true,
+        music_loop: false,
 
         music_transition: baal::music::MusicTransition::Instant,
 
-        effect: vec!(("explosion.ogg".into(),1),("stereo_explosion.ogg".into(),1)),
+        effect: vec!(("shoot.ogg".into(),10),("hit.ogg".into(),10)),
         music: vec!("village.ogg".into()),
 
         check_level: baal::CheckLevel::Always,
     };
 
-    baal::init(&setting).unwrap();
+    baal::init(&setting).expect("fail to init baal");
+
     baal::music::play(0);
-
-    for i in 0..7 {
-        let p = (i*20) as f64;
-        baal::effect::play(0,&[p,0.,0.]);
-        thread::sleep(Duration::from_millis(1));
-        baal::effect::play(1,&[p,0.,0.]);
-        thread::sleep(Duration::from_millis(400));
-    }
-
+    thread::sleep(Duration::from_secs(3));
+    assert_eq!(baal::music::status(),baal::music::MusicStatus::Stop);
     baal::close();
 }

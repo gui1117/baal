@@ -372,6 +372,17 @@ pub mod music {
         /// the current music is stopped and the new one is played.
         Instant,
     }
+    
+    impl MusicTransition {
+        /// whether music transition is smooth
+        pub fn is_smooth(&self) -> bool {
+            if let &MusicTransition::Smooth(_) = self {
+                true
+            } else {
+                false
+            }
+        }
+    }
 }
 
 /// set the global volume
@@ -784,24 +795,30 @@ impl Music {
         if self.pause { return; }
 
         let destroy_snd_file = if let Some(ref mut snd_file) = self.snd_file {
-            let volume = if self.transitional_snd_file.is_some() {
-                let transition_frames = match self.transition_type {
-                    MusicTransition::Instant => panic!("music transition is instant and there is a transitional snd file"),
-                    MusicTransition::Overlap(t) | MusicTransition::Smooth(t) => t,
-                };
-                self.volume * self.transition_frame as f32 / transition_frames as f32
+            if self.transitional_snd_file.is_some() && self.transition_type.is_smooth() {
+                false
             } else {
-                self.volume
-            };
+                let volume = if self.transitional_snd_file.is_some() {
+                    match self.transition_type {
+                        MusicTransition::Overlap(transition_frames) => {
+                            self.volume * self.transition_frame as f32 / transition_frames as f32
+                        },
+                        MusicTransition::Instant => panic!("music transition is instant and there is a transitional snd file"),
+                        MusicTransition::Smooth(_) => unreachable!(),
+                    }
+                } else {
+                    self.volume
+                };
 
-            let frame = self.channel_conv.fill_buffer(snd_file, volume, buffer_output, buffer_one, buffer_two, frames);
+                let frame = self.channel_conv.fill_buffer(snd_file, volume, buffer_output, buffer_one, buffer_two, frames);
 
-            if frame == 0 {
-                if self.looping {
-                    snd_file.seek(0,SeekMode::SeekSet);
-                    false
-                } else { true }
-            } else { false }
+                if frame == 0 {
+                    if self.looping {
+                        snd_file.seek(0,SeekMode::SeekSet);
+                        false
+                    } else { true }
+                } else { false }
+            }
         } else { false };
 
         if destroy_snd_file {
@@ -819,10 +836,13 @@ impl Music {
             let frame = self.channel_conv.fill_buffer(snd_file, volume, buffer_output, buffer_one, buffer_two, frames);
 
             self.transition_frame += frame;
-            self.transition_frame < transition_frames || frame == 0
+            self.transition_frame >= transition_frames || frame == 0
         } else { false };
 
-        if destroy_transitional_snd_file { self.transitional_snd_file = None };
+        if destroy_transitional_snd_file { 
+            self.transition_frame = 0;
+            self.transitional_snd_file = None;
+        };
     }
 
     fn set_transition(&mut self, trans: MusicTransition) {
