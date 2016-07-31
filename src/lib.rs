@@ -2,7 +2,6 @@
 //!
 //! ##Features
 //!
-//! * yaml configuration so you can easily test sounds without recompile
 //! * channel conversion: 1 or 2 for files and 1 or 2 for audio output
 //! * music player: detail in [music mode](./music/index.html)
 //! * effect player: detail in [effect mode](./effect/index.html)
@@ -36,14 +35,12 @@
 
 #![warn(missing_docs)]
 
-/// crate for parsing yaml
-#[macro_use] pub extern crate yaml_rust;
+extern crate rustc_serialize;
 extern crate portaudio;
 
 mod sndfile;
 pub use sndfile::SeekMode;
 
-use yaml_rust::yaml::Yaml;
 use std::sync::mpsc::{Sender, Receiver, channel};
 use std::sync::RwLock;
 use sndfile::{SndFile, OpenMode};
@@ -51,13 +48,16 @@ use portaudio as pa;
 use std::thread;
 use std::path::{Path, PathBuf};
 use std::ops::Rem;
+
 use effect::DistanceModel;
+use music::MusicStatus;
+use music::MusicTransition;
 
 static mut RAW_STATE: *mut RwLock<State> = 0 as *mut RwLock<State>;
 
 /// check at init if all music are OK
 /// otherwise it may panic when playing the music
-#[derive(Debug,Clone,Copy,PartialEq)]
+#[derive(Debug,Clone,Copy,PartialEq,RustcEncodable,RustcDecodable)]
 pub enum CheckLevel {
     /// always check all music
     Always,
@@ -84,8 +84,10 @@ impl CheckLevel {
     }
 }
 
-#[derive(Clone,Debug,PartialEq)]
+#[derive(Clone,Debug,PartialEq,RustcEncodable,RustcDecodable)]
 /// set musics, effects, volumes and audio player.
+///
+/// impl rustc_decodable and rustc_encodable
 pub struct Setting {
     /// number of channels: 1 or 2 only
     pub channels: i32,
@@ -113,7 +115,7 @@ pub struct Setting {
     pub music_loop: bool,
 
     /// the kind of transition between musics
-    pub music_transition: music::MusicTransition,
+    pub music_transition: MusicTransition,
 
     /// the list of effect, and number of loading of each, correspond
     /// to the number of effect playable at the same time
@@ -128,167 +130,6 @@ pub struct Setting {
 
     /// check level: always, debug or never
     pub check_level: CheckLevel,
-}
-
-impl Setting {
-    /// import setting from yaml:
-    ///
-    /// ```yaml
-    /// ---
-    /// check_level: always
-    ///
-    /// channels: 2
-    /// sample_rate: 44100.
-    /// frames_per_buffer: 64
-    ///
-    /// effect_dir: assets/effects
-    /// music_dir: assets/musics
-    ///
-    /// global_volume: 0.5
-    /// music_volume: 0.8
-    /// effect_volume: 0.3
-    ///
-    /// distance_model: [pow2,10.,110.]
-    /// music_loop: true
-    /// music_transition: [instant]
-    ///
-    /// effect:
-    ///     - [shoot.ogg,10]
-    ///     - [hit.ogg,10]
-    ///
-    /// music:
-    ///     - village.ogg
-    /// ...
-    /// ```
-    ///
-    pub fn from_yaml(code: &Yaml) -> Result<Self,String> {
-        let hash = try!(code.as_hash().ok_or_else(|| "config must be an associative array"));
-
-        let check_level = {
-            let check_level_str = try!(try!(hash.get(&Yaml::String(String::from("check_level")))
-                .ok_or_else(|| "config map must have check_level key")).as_str()
-                .ok_or_else(|| "check_level must be a string"));
-
-            match check_level_str {
-                "always" | "Always" => CheckLevel::Always,
-                "debug" | "Debug" => CheckLevel::Debug,
-                "never" | "Never" => CheckLevel::Never,
-                _ => return Err("check level must be always debug or never".into()),
-            }
-        };
-
-        let distance_model = {
-            let vec = try!(try!(hash.get(&Yaml::String(String::from("distance_model")))
-                .ok_or_else(|| "config map must have distance_model key")).as_vec()
-                .ok_or_else(|| "distance model must be vector"));
-
-            match try!(vec[0].as_str().ok_or_else(|| "distance model first element must be the string of the enum")) {
-                "linear" | "Linear" => DistanceModel::Linear(
-                    try!(vec[1].as_f64().ok_or_else(|| "linear distance model second element must be a float")),
-                    try!(vec[2].as_f64().ok_or_else(|| "linear distance model third element must be a float"))),
-                "pow2" | "Pow2" => DistanceModel::Pow2(
-                    try!(vec[1].as_f64().ok_or_else(|| "exponential distance model second element must be a float")),
-                    try!(vec[2].as_f64().ok_or_else(|| "exponential distance model third element must be a float"))),
-                _ => return Err("distance model first element must be linear or pow2".into()),
-            }
-        };
-
-        let music_transition = {
-            let vec = try!(try!(hash.get(&Yaml::String(String::from("music_transition")))
-                .ok_or_else(|| "config map must have music_transition key")).as_vec()
-                .ok_or_else(|| "distance model must be vector"));
-
-            match try!(vec[0].as_str().ok_or_else(|| "music transition first element must be the string of the enum")) {
-                "overlap" | "Overlap" => MusicTransition::Overlap(
-                    try!(vec[1].as_i64().ok_or_else(|| "overlap music transition second element must be an integer"))),
-                "smooth" | "Smooth" => MusicTransition::Smooth(
-                    try!(vec[1].as_i64().ok_or_else(|| "smooth music transition second element must be an integer"))),
-                "instant" | "Instant" => MusicTransition::Instant,
-                _ => return Err("music transition first element must be overlap instant or smooth".into()),
-            }
-        };
-
-        let effect = {
-            let key = try!(hash.get(&Yaml::String(String::from("effect")))
-                           .ok_or_else(|| "config map must have effect key"));
-
-            if let Some(vec) = key.as_vec() {
-                let mut res = Vec::new();
-                for y in vec {
-                    let y_vec = try!(y.as_vec().ok_or_else(|| "element of effect list must be a vector"));
-                    let name = try!(y_vec[0].as_str().ok_or_else(|| "first element of effect list must be a string")).into();
-                    let loads = try!(y_vec[1].as_i64().ok_or_else(|| "second element of effect list must be an integer")) as u32;
-                    res.push((name,loads));
-                }
-                res
-            } else if key.is_null() {
-                vec!()
-            } else {
-                return Err("effect must a list or null".into());
-            }
-        };
-
-        let music = {
-            let key = try!(hash.get(&Yaml::String(String::from("music"))).ok_or_else(|| "config map must have music key"));
-            if let Some(vec) = key.as_vec() {
-                let mut res = Vec::new();
-                for y in vec {
-                    res.push(try!(y.as_str().ok_or_else(|| "element of music must a string")).into());
-                }
-                res
-            } else if key.is_null() {
-                vec!()
-            } else {
-                return Err("music must be a list or null".into());
-            }
-        };
-
-        Ok(Setting {
-            channels: try!(try!(hash.get(&Yaml::String(String::from("channels")))
-                .ok_or_else(|| "config map must have a channels key")).as_i64()
-                .ok_or_else(|| "channels must be an integer")) as i32,
-
-            sample_rate: try!(try!(hash.get(&Yaml::String(String::from("sample_rate")))
-                .ok_or_else(|| "config map must have a sample_rate key")).as_f64()
-                .ok_or_else(|| "sample_rate must be a float")),
-
-            frames_per_buffer: try!(try!(hash.get(&Yaml::String(String::from("frames_per_buffer")))
-                .ok_or_else(|| "config map must have a frames_per_buffer key")).as_i64()
-                .ok_or_else(|| "frames_per_buffer must be an integer")) as u32,
-
-            music_dir: String::from(try!(try!(hash.get(&Yaml::String(String::from("music_dir")))
-                .ok_or_else(|| "config map must have a music_dir key")).as_str()
-                .ok_or_else(|| "music_dir must be a string"))),
-
-            effect_dir: String::from(try!(try!(hash.get(&Yaml::String(String::from("effect_dir")))
-                .ok_or_else(|| "config map must have a effect_dir key")).as_str()
-                .ok_or_else(|| "effect_dir must be a string"))),
-
-            global_volume: try!(try!(hash.get(&Yaml::String(String::from("global_volume")))
-                .ok_or_else(|| "config map must have a global_volume key")).as_f64()
-                .ok_or_else(|| "global volume must be a float")) as f32,
-
-            music_volume: try!(try!(hash.get(&Yaml::String(String::from("music_volume")))
-                .ok_or_else(|| "config map must have a music_volume key")).as_f64()
-                .ok_or_else(|| "music volume must be a float")) as f32,
-
-            effect_volume: try!(try!(hash.get(&Yaml::String(String::from("effect_volume")))
-                .ok_or_else(|| "config map must have a effect_volume key")).as_f64()
-                .ok_or_else(|| "effect volume must be a float")) as f32,
-
-            distance_model: distance_model,
-
-            music_loop: try!(try!(hash.get(&Yaml::String(String::from("music_loop")))
-                .ok_or_else(|| "config map must have a music_loop key")).as_bool()
-                .ok_or_else(|| "music_loop must be a bool")),
-
-            music_transition: music_transition,
-
-            effect: effect,
-            music: music,
-            check_level: check_level,
-        })
-    }
 }
 
 pub mod effect {
@@ -350,7 +191,7 @@ pub mod effect {
     }
 
     /// distance model, used to compute sounds effects volume.
-    #[derive(Clone,Debug,PartialEq)]
+    #[derive(Clone,Debug,PartialEq,RustcDecodable,RustcEncodable)]
     pub enum DistanceModel {
         /// if d <= a then 1
         ///
@@ -471,7 +312,7 @@ pub mod music {
     /// having the status updated
     pub fn status() -> MusicStatus {
         let mut state = unsafe { (*RAW_STATE).write().unwrap() };
-        //TODO
+
         while let Ok(status) = state.music_status_receiver.try_recv() {
             state.music_status = status;
         }
@@ -522,7 +363,7 @@ pub mod music {
     }
 
     /// the type of transition between musics
-    #[derive(Clone,Copy,Debug,PartialEq)]
+    #[derive(Clone,Copy,Debug,PartialEq,RustcDecodable,RustcEncodable)]
     pub enum MusicTransition {
         /// the current music end smoothly and then the new one is played.
         Smooth(i64),
@@ -532,8 +373,6 @@ pub mod music {
         Instant,
     }
 }
-use music::MusicStatus;
-use music::MusicTransition;
 
 /// set the global volume
 pub fn set_volume(v: f32) {
@@ -582,7 +421,7 @@ fn check_setting(setting: &Setting) -> Result<(),InitError> {
             let snd_file = try!(SndFile::new(file.as_path(),OpenMode::Read)
                                 .map_err(|sfe| InitError::SndFile((sfe,i.clone()))));
             let snd_info = snd_file.get_sndinfo();
-            if snd_info.samplerate as f64 - setting.sample_rate < std::f64::EPSILON {
+            if (snd_info.samplerate as f64 - setting.sample_rate).abs() > std::f64::EPSILON {
                 return Err(InitError::SampleRate(i.clone()));
             }
             if snd_info.channels != 1 && snd_info.channels != 2 {
@@ -595,7 +434,7 @@ fn check_setting(setting: &Setting) -> Result<(),InitError> {
         let snd_file = try!(SndFile::new(file.as_path(),OpenMode::Read)
                             .map_err(|sfe| InitError::SndFile((sfe,i.clone()))));
         let snd_info = snd_file.get_sndinfo();
-        if snd_info.samplerate as f64 - setting.sample_rate < std::f64::EPSILON {
+        if (snd_info.samplerate as f64 - setting.sample_rate).abs() > std::f64::EPSILON {
             return Err(InitError::SampleRate(i.clone()));
         }
         if snd_info.channels != 1 && snd_info.channels != 2 {
@@ -1041,102 +880,3 @@ impl Music {
         self.volume = v;
     }
 }
-
-#[test]
-fn test_complete_configuration() {
-    use yaml_rust::yaml::YamlLoader;
-
-    let s = Setting {
-        check_level: CheckLevel::Always,
-        channels: 2,
-        sample_rate: 44_100f64,
-        frames_per_buffer: 64,
-
-        effect_dir: String::from("assets/effects"),
-        music_dir: String::from("assets/musics"),
-
-        global_volume: 0.5,
-        music_volume: 0.5,
-        effect_volume: 0.5,
-
-        distance_model: DistanceModel::Linear(10.,100.),
-        music_loop: true,
-
-        effect: vec![(String::from("shoot.ogg"),10),(String::from("hit.ogg"),10)],
-        music: vec![String::from("village.ogg"),String::from("forest.ogg")],
-    };
-    let doc = YamlLoader::load_from_str(
-"---
-check_level: always
-channels: 2
-sample_rate: 44100.
-frames_per_buffer: 64
-
-effect_dir: assets/effects
-music_dir: assets/musics
-
-global_volume: 0.5
-music_volume: 0.5
-effect_volume: 0.5
-
-distance_model: [Linear,10.,100.]
-music_loop: true
-
-effect:
-    - [shoot.ogg,10]
-    - [hit.ogg,10]
-
-music:
-    - village.ogg
-    - forest.ogg
-...
-").unwrap();
-    assert_eq!(s,Setting::from_yaml(&doc[0]).unwrap());
-}
-
-#[test]
-fn test_minimal_configuration() {
-    use yaml_rust::yaml::YamlLoader;
-
-    let s = Setting {
-        check_level: CheckLevel::Never,
-        channels: 2,
-        sample_rate: 44_100f64,
-        frames_per_buffer: 64,
-
-        effect_dir: String::from("assets/effects"),
-        music_dir: String::from("assets/musics"),
-
-        global_volume: 0.5,
-        music_volume: 0.5,
-        effect_volume: 0.5,
-
-        distance_model: DistanceModel::Linear(10.,100.),
-        music_loop: false,
-
-        effect: vec![],
-        music: vec![],
-    };
-    let doc = YamlLoader::load_from_str(
-"---
-check_level: never
-channels: 2
-sample_rate: 44100.
-frames_per_buffer: 64
-
-effect_dir: assets/effects
-music_dir: assets/musics
-
-global_volume: 0.5
-music_volume: 0.5
-effect_volume: 0.5
-
-distance_model: [Linear,10.,100.]
-music_loop: false
-effect:
-music:
-...
-").unwrap();
-    assert_eq!(s,Setting::from_yaml(&doc[0]).unwrap());
-}
-

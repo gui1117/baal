@@ -1,65 +1,56 @@
 extern crate baal;
-extern crate yaml_rust;
 
-use yaml_rust::yaml::YamlLoader;
 use std::thread;
 use std::time::Duration;
 
-static ONE_CHANNEL_YAML_CONFIG: &'static str =
-"---
-check_level: always
-channels: 1
-sample_rate: 44100.
-frames_per_buffer: 64
-
-effect_dir: assets/effects
-music_dir: assets/musics
-
-global_volume: 0.5
-music_volume: 0.8
-effect_volume: 0.3
-
-distance_model: [Pow2,10.,110.]
-music_loop: true
-
-effect:
-    - [explosion.ogg,1]
-    - [stereo_explosion.ogg,1]
-music:
-...
-";
-
-static TWO_CHANNEL_YAML_CONFIG: &'static str =
-"---
-check_level: always
-channels: 2
-sample_rate: 44100.
-frames_per_buffer: 64
-
-effect_dir: assets/effects
-music_dir: assets/musics
-
-global_volume: 0.5
-music_volume: 0.8
-effect_volume: 0.3
-
-distance_model: [Pow2,10.,110.]
-music_loop: true
-
-effect:
-    - [explosion.ogg,1]
-    - [stereo_explosion.ogg,1]
-music:
-...
-";
-
 #[test]
 fn channel_conv() {
-    let one_channel_yaml_config = YamlLoader::load_from_str(ONE_CHANNEL_YAML_CONFIG).expect("load yaml config");
-    let two_channel_yaml_config = YamlLoader::load_from_str(TWO_CHANNEL_YAML_CONFIG).expect("load yaml config");
+    let one_channel_setting = baal::Setting {
+        channels: 2,
+        sample_rate: 44100.,
+        frames_per_buffer: 64,
 
-    let one_channel_setting = baal::Setting::from_yaml(&one_channel_yaml_config[0]).expect("create setting from yaml");
-    let two_channel_setting = baal::Setting::from_yaml(&two_channel_yaml_config[0]).expect("create setting from yaml");
+        effect_dir: "assets/effects".into(),
+        music_dir: "assets/musics".into(),
+
+        global_volume: 0.5,
+        music_volume: 0.5,
+        effect_volume: 0.5,
+
+        distance_model: baal::effect::DistanceModel::Linear(10.,110.),
+
+        music_loop: true,
+
+        music_transition: baal::music::MusicTransition::Instant,
+
+        effect: vec!(("explosion.ogg".into(),1),("stereo_explosion.ogg".into(),1)),
+        music: vec!(),
+
+        check_level: baal::CheckLevel::Always,
+    };
+    let two_channel_setting = baal::Setting {
+        channels: 1,
+        sample_rate: 44100.,
+        frames_per_buffer: 64,
+
+        effect_dir: "assets/effects".into(),
+        music_dir: "assets/musics".into(),
+
+        global_volume: 0.5,
+        music_volume: 0.5,
+        effect_volume: 0.5,
+
+        distance_model: baal::effect::DistanceModel::Linear(10.,110.),
+
+        music_loop: true,
+
+        music_transition: baal::music::MusicTransition::Instant,
+
+        effect: vec!(("explosion.ogg".into(),1),("stereo_explosion.ogg".into(),1)),
+        music: vec!(),
+
+        check_level: baal::CheckLevel::Always,
+    };
 
     baal::init(&one_channel_setting).expect("init baal");
 
