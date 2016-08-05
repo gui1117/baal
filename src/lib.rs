@@ -365,14 +365,14 @@ pub mod music {
     /// the type of transition between musics
     #[derive(Clone,Copy,Debug,PartialEq,RustcDecodable,RustcEncodable)]
     pub enum MusicTransition {
-        /// the current music end smoothly and then the new one is played.
-        Smooth(i64),
-        /// the current music end smoothly while the new one begin smoothly.
-        Overlap(i64),
+        /// the current music end smoothly and then the new one is played. (in second)
+        Smooth(f32),
+        /// the current music end smoothly while the new one begin smoothly. (in second)
+        Overlap(f32),
         /// the current music is stopped and the new one is played.
         Instant,
     }
-    
+
     impl MusicTransition {
         /// whether music transition is smooth
         pub fn is_smooth(&self) -> bool {
@@ -475,7 +475,7 @@ fn init_stream(setting: &Setting, music_status_sender: Sender<MusicStatus>, rece
             )
         .collect();
 
-    let mut music = Music::new((setting.global_volume*setting.music_volume as f32),setting.music_loop,setting.music_transition,setting.channels,music_status_sender);
+    let mut music = Music::new((setting.global_volume*setting.music_volume as f32),setting.music_loop,setting.music_transition,setting.channels,setting.sample_rate as f32,music_status_sender);
 
     let mut buffer_one: Vec<f32> = (0..setting.frames_per_buffer).map(|i| i as f32).collect();
     let mut buffer_two: Vec<f32> = (0..2*setting.frames_per_buffer).map(|i| i as f32).collect();
@@ -763,6 +763,7 @@ impl Effect {
 
 #[derive(Debug)]
 struct Music {
+    sample_rate: f32,
     status_sender: Sender<MusicStatus>,
     snd_file: Option<SndFile>,
     transitional_snd_file: Option<SndFile>,
@@ -776,8 +777,9 @@ struct Music {
 }
 
 impl Music {
-    fn new(volume: f32, looping: bool, transition: MusicTransition, output_channels: i32, status_sender: Sender<MusicStatus>) -> Music {
+    fn new(volume: f32, looping: bool, transition: MusicTransition, output_channels: i32, sample_rate: f32, status_sender: Sender<MusicStatus>) -> Music {
         Music {
+            sample_rate: sample_rate,
             status_sender: status_sender,
             snd_file: None,
             transitional_snd_file: None,
@@ -800,8 +802,8 @@ impl Music {
             } else {
                 let volume = if self.transitional_snd_file.is_some() {
                     match self.transition_type {
-                        MusicTransition::Overlap(transition_frames) => {
-                            self.volume * self.transition_frame as f32 / transition_frames as f32
+                        MusicTransition::Overlap(transition_time) => {
+                            self.volume * self.transition_frame as f32 / (transition_time * self.sample_rate)
                         },
                         MusicTransition::Instant => panic!("music transition is instant and there is a transitional snd file"),
                         MusicTransition::Smooth(_) => unreachable!(),
@@ -829,14 +831,14 @@ impl Music {
         let destroy_transitional_snd_file = if let Some(ref mut snd_file) = self.transitional_snd_file {
             let transition_frames = match self.transition_type {
                 MusicTransition::Instant => panic!("music transition is instant and there is a transitional snd file"),
-                MusicTransition::Overlap(t) | MusicTransition::Smooth(t) => t,
+                MusicTransition::Overlap(t) | MusicTransition::Smooth(t) => t * self.sample_rate,
             };
 
-            let volume = self.volume * (1. - self.transition_frame as f32 / transition_frames as f32);
+            let volume = self.volume * (1. - self.transition_frame as f32 / transition_frames);
             let frame = self.channel_conv.fill_buffer(snd_file, volume, buffer_output, buffer_one, buffer_two, frames);
 
             self.transition_frame += frame;
-            self.transition_frame >= transition_frames || frame == 0
+            self.transition_frame >= transition_frames as i64 || frame == 0
         } else { false };
 
         if destroy_transitional_snd_file { 

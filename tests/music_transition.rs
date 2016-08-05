@@ -39,11 +39,11 @@ fn test() {
     baal::music::play(0);
     thread::sleep(Duration::from_secs(4));
 
-    baal::music::set_transition(baal::music::MusicTransition::Smooth(100000));
+    baal::music::set_transition(baal::music::MusicTransition::Smooth(2.0));
     baal::music::play(0);
     thread::sleep(Duration::from_secs(4));
 
-    baal::music::set_transition(baal::music::MusicTransition::Overlap(100000));
+    baal::music::set_transition(baal::music::MusicTransition::Overlap(2.0));
     baal::music::play(0);
     thread::sleep(Duration::from_secs(10));
     baal::close();
