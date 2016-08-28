@@ -11,6 +11,4 @@
 
 * ! portaudio callback mustn't block so it must not acquire the mutex in channel!
   use mutex instead
-* better api:
-  * `effect::play_on_listener`
 * third kind of sound

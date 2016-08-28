@@ -158,12 +158,18 @@ pub mod effect {
 
     /// play the sound effect at the volume: `global_volume * effect_volume *
     /// distance([x,y,z],listener_position)`
-    pub fn play(effect: usize, pos: &[f64;3]) {
+    pub fn play(effect: usize, pos: [f32;3]) {
         let state = unsafe { (*RAW_STATE).read().unwrap() };
-        let volume = state.global_volume * state.effect_volume * state.distance_model.distance(pos,&state.listener);
+        let volume = state.global_volume * state.effect_volume * state.distance_model.distance(pos,state.listener);
         if volume > 0. {
             state.sender.send(Msg::PlayEffect(effect,volume)).unwrap();
         }
+    }
+
+    /// play the sound effect at the position of the listene
+    /// ie volume is `global_volume * effect_volume`
+    pub fn play_on_listener(effect: usize) {
+        play(effect,listener());
     }
 
     /// stop all sound effects
@@ -173,13 +179,13 @@ pub mod effect {
     }
 
     /// set the position of the listener
-    pub fn set_listener(x: f64, y: f64, z: f64) {
+    pub fn set_listener(pos: [f32;3]) {
         let mut state = unsafe { (*RAW_STATE).write().unwrap() };
-        state.listener = [x,y,z];
+        state.listener = pos;
     }
 
     /// return the position of the listener
-    pub fn listener() -> [f64;3] {
+    pub fn listener() -> [f32;3] {
         let state = unsafe { (*RAW_STATE).read().unwrap() };
         state.listener
     }
@@ -199,19 +205,19 @@ pub mod effect {
         /// if a <= d <= b then 1-((d-a)/(b-a))
         ///
         /// if d >= b then 0
-        Linear(f64,f64),
+        Linear(f32,f32),
         /// if d <= a then 1
         ///
         /// if a <= d <= b then (1-((d-a)/(b-a)))^2
         ///
         /// if d >= b then 0
-        Pow2(f64,f64),
+        Pow2(f32,f32),
     }
 
     impl DistanceModel {
-        fn distance(&self, pos: &[f64;3], listener: &[f64;3]) -> f32 {
+        fn distance(&self, pos: [f32;3], listener: [f32;3]) -> f32 {
             let d = pos.iter()
-                .zip(listener)
+                .zip(&listener)
                 .map(|(a,b)| (a-b).powi(2))
                 .fold(0.,|sum,i| sum+i)
                 .sqrt();
@@ -221,7 +227,7 @@ pub mod effect {
                     if d <= a {
                         1.
                     } else if d <= b {
-                        1. - ((d-a)/(b-a)) as f32
+                        1. - ((d-a)/(b-a))
                     } else {
                         0.
                     }
@@ -230,7 +236,7 @@ pub mod effect {
                     if d <= a {
                         1.
                     } else if d <= b {
-                        (1. - ((d-a)/(b-a)) as f32).powi(2)
+                        (1. - ((d-a)/(b-a))).powi(2)
                     } else {
                         0.
                     }
@@ -285,6 +291,19 @@ pub mod music {
         state.music_index = Some(music);
         let snd_file = SndFile::new(&state.music[music],OpenMode::Read).unwrap();
         state.sender.send(Msg::PlayMusic(snd_file)).unwrap();
+    }
+
+    /// play the music if is different from the current one
+    pub fn play_or_continue(music: usize) {
+        let must_play = if let Some(index) = index() {
+            music != index
+        } else {
+            true
+        };
+
+        if must_play {
+            play(music);
+        }
     }
 
     /// pause the music
@@ -603,7 +622,7 @@ struct State {
     music_status_receiver: Receiver<MusicStatus>,
     sender: Sender<Msg>,
     abort_sender: Sender<()>,
-    listener: [f64;3],
+    listener: [f32;3],
     distance_model: DistanceModel,
     global_volume: f32,
     music_volume: f32,
