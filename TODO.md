@@ -1,4 +1,4 @@
-##TODO
+## TODO
 
 ### high priority
 * [ ] ¿implement serde::serialize and serde::deserialize? is it stable now ?
@@ -11,4 +11,17 @@
 
 * ! portaudio callback mustn't block so it must not acquire the mutex in channel!
   use mutex instead
-* third kind of sound
+  does channel can block ??
+
+  as far as I know a channel is a vec in a mutex.
+  does the receiver try recv can block during a sending process ?
+
+  it mustn't be a problem
+
+* third kind of sound: ambiant snd:
+  * new
+  * add position
+  * remove position
+  * clear positions
+  * update volume
+  * ¿list position? depend if they are store or not, may be useless

@@ -1,10 +1,10 @@
-#baal [![](http://meritbadge.herokuapp.com/baal)](https://crates.io/crates/baal)
+# baal [![](http://meritbadge.herokuapp.com/baal)](https://crates.io/crates/baal)
 
 BAsic Audio Library
 
 [DOCUMENTATION](https://thiolliere.org/doc/baal_doc/baal/index.html)
 
-##Features
+## Features
 
 * channel conversion: 1 or 2 for files and 1 or 2 for audio output
 * music player
@@ -17,7 +17,7 @@ for more information about format available see [libsndfile#features](http://www
 for more information about why not mp3 as lots of other foss handle it see [libsndfile#whynotmp3](http://www.mega-nerd.com/libsndfile/FAQ.html#Q020)
 
 
-##Dependencies
+## Dependencies
 
 * libsndfile:
 
