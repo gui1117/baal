@@ -19,9 +19,11 @@
   it mustn't be a problem
 
 * third kind of sound: ambiant snd:
-  * new
+  * new: return an index
   * add position
   * remove position
   * clear positions
   * update volume
   * ¿list position? depend if they are store or not, may be useless
+
+  * design choice: whereas we store all position and then compute the volume on update volume or compute continuously on add and remove
