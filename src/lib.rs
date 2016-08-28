@@ -48,6 +48,7 @@ use portaudio as pa;
 use std::thread;
 use std::path::{Path, PathBuf};
 use std::ops::Rem;
+use std::fmt;
 
 use effect::DistanceModel;
 use music::MusicStatus;
@@ -414,12 +415,26 @@ pub enum InitError {
     SndFile((sndfile::SndFileError,String)),
     /// samplerate of this file doesn't match the setting
     SampleRate(String),
-    /// channels of this file cannot be handled properly: not 1 or 2
+    /// channels of this file cannot be handled properly: must be 1 or 2
     Channels(String),
-    /// output channels cannot be handledis properly: not 1 or 2
+    /// output channels cannot be handled properly: must be 1 or 2
     OutputChannels,
     /// baal has already been initialiazed
     DoubleInit,
+}
+
+impl fmt::Display for InitError {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        use self::InitError::*;
+        match *self {
+            PortAudio(ref e) => write!(fmt,"portaudio error: {}",e),
+            SndFile((ref e,ref s)) => write!(fmt,"sndfile error while loading {}: {}",s,e.desc()),
+            SampleRate(ref s) => write!(fmt,"sample rate of {} doesn't match the setting",s),
+            Channels(ref s) => write!(fmt,"channels of {} cannot be handled properly: must be 1 or 2",s),
+            OutputChannels => write!(fmt,"output channels cannot be handled properly: must be 1 or 2"),
+            DoubleInit => write!(fmt,"baal has already been initialized"),
+        }
+    }
 }
 
 fn check_setting(setting: &Setting) -> Result<(),InitError> {
@@ -841,7 +856,7 @@ impl Music {
             self.transition_frame >= transition_frames as i64 || frame == 0
         } else { false };
 
-        if destroy_transitional_snd_file { 
+        if destroy_transitional_snd_file {
             self.transition_frame = 0;
             self.transitional_snd_file = None;
         };

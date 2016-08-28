@@ -12,7 +12,5 @@ keywords = ["audio","simple","game","basic","sound"]
 [dependencies]
 rustc-serialize = "0.3.0"
 libc = "0.2.0"
-portaudio = "0.6.0"
+portaudio = "0.7.0"
 
-[dev-dependencies]
-toml = "0.1.0"
