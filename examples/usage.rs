@@ -22,7 +22,8 @@ fn main() {
 
         music_transition: baal::music::MusicTransition::Instant,
 
-        effect: vec!(("explosion.ogg".into(),1),("stereo_explosion.ogg".into(),1)),
+        short_effect: vec!(("explosion.ogg".into(),1),("stereo_explosion.ogg".into(),1)),
+        persistent_effect: vec!("electro_fly_from_xonotic_game.ogg".into()),
         music: vec!("village.ogg".into()),
 
         check_level: baal::CheckLevel::Always,
@@ -31,13 +32,15 @@ fn main() {
     baal::init(&setting).unwrap();
     baal::music::play(0);
 
-    for i in 0..7 {
-        let p = (i*20) as f64;
-        baal::effect::play(0,&[p,0.,0.]);
-        thread::sleep(Duration::from_millis(1));
-        baal::effect::play(1,&[p,0.,0.]);
-        thread::sleep(Duration::from_millis(400));
-    }
+    baal::effect::set_listener([1.,1.,1.]);
+
+    baal::effect::persistent::add_position(0,[0.0,0.0,0.0]);
+    baal::effect::persistent::add_position(0,[0.0,0.0,10.0]);
+    baal::effect::persistent::update_volume_for_all();
+
+    baal::effect::short::play(0,[0.,0.,0.]);
+
+    thread::sleep(Duration::from_secs(40));
 
     baal::close();
 }

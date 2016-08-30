@@ -23,7 +23,8 @@ fn channel_conv() {
 
         music_transition: baal::music::MusicTransition::Instant,
 
-        effect: vec!(("explosion.ogg".into(),1),("stereo_explosion.ogg".into(),1)),
+        short_effect: vec!(("explosion.ogg".into(),1),("stereo_explosion.ogg".into(),1)),
+        persistent_effect: vec!(),
         music: vec!(),
 
         check_level: baal::CheckLevel::Always,
@@ -46,7 +47,8 @@ fn channel_conv() {
 
         music_transition: baal::music::MusicTransition::Instant,
 
-        effect: vec!(("explosion.ogg".into(),1),("stereo_explosion.ogg".into(),1)),
+        short_effect: vec!(("explosion.ogg".into(),1),("stereo_explosion.ogg".into(),1)),
+        persistent_effect: vec!(),
         music: vec!(),
 
         check_level: baal::CheckLevel::Always,
@@ -54,16 +56,16 @@ fn channel_conv() {
 
     baal::init(&one_channel_setting).expect("init baal");
 
-    baal::effect::play(0,&[0.,0.,0.]);
+    baal::effect::short::play(0,[0.,0.,0.]);
     thread::sleep(Duration::from_secs(2));
-    baal::effect::play(1,&[0.,0.,0.]);
+    baal::effect::short::play(1,[0.,0.,0.]);
     thread::sleep(Duration::from_secs(5));
 
     baal::reset(&two_channel_setting).expect("reset baal");
 
-    baal::effect::play(0,&[0.,0.,0.]);
+    baal::effect::short::play(0,[0.,0.,0.]);
     thread::sleep(Duration::from_secs(2));
-    baal::effect::play(1,&[0.,0.,0.]);
+    baal::effect::short::play(1,[0.,0.,0.]);
     thread::sleep(Duration::from_secs(5));
 
     baal::close();

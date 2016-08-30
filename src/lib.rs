@@ -92,20 +92,25 @@ impl CheckLevel {
 pub struct Setting {
     /// number of channels: 1 or 2 only
     pub channels: i32,
+
     /// sample rate: mostly 44_100
     pub sample_rate: f64,
+
     /// number of frame per buffer: 64 is good
     pub frames_per_buffer: u32,
 
     /// the base directory of effects
-    pub effect_dir: String,
+    pub effect_dir: PathBuf,
+
     /// the base directory of musics
-    pub music_dir: String,
+    pub music_dir: PathBuf,
 
     /// global volume in [0,1]
     pub global_volume: f32,
+
     /// music volume in [0,1]
     pub music_volume: f32,
+
     /// effect volume in [0,1]
     pub effect_volume: f32,
 
@@ -118,30 +123,34 @@ pub struct Setting {
     /// the kind of transition between musics
     pub music_transition: MusicTransition,
 
-    /// the list of effect, and number of loading of each, correspond
+    /// the list of short effects, and number of loading of each, correspond
     /// to the number of effect playable at the same time
     /// for example a sword that can be played up to 10 times at the same time ("sword.ogg",10)
     ///
     /// each effect is identified by its position in the vector
-    pub effect: Vec<(String,u32)>,
+    pub short_effect: Vec<(PathBuf,u32)>,
+
+    /// the list of persistent effects
+    ///
+    /// each effect is identified by its position in the vector
+    pub persistent_effect: Vec<PathBuf>,
+
     /// the list of music
     ///
     /// each music is identified by its position in the vector
-    pub music: Vec<String>,
+    pub music: Vec<PathBuf>,
 
     /// check level: always, debug or never
     pub check_level: CheckLevel,
 }
 
 pub mod effect {
-    //! this module allow to play sound effect
+    //! this module allow to play short and persistent sound effects
     //!
-    //! volume = `global_volume * effect_volume * distance([x,y,z],listener_position)`
-    //!
-    //! but once a sound effect is played at a volume it doesn't change its volume anymore
-    //! this can lead to weird effects for long sound effects
+    //! be careful that `set_volume`, `set_listener`, `set_distance_model`
+    //! only affect future short sound effects
 
-    use super::{RAW_STATE, Msg};
+    use super::RAW_STATE;
 
     /// set the volume of sound effects
     /// take effect for future sounds effects only
@@ -150,32 +159,128 @@ pub mod effect {
         state.effect_volume = v;
     }
 
-    /// get the volume of sound effects
+    /// return the volume of sound effects
     pub fn volume() -> f32 {
         let state = unsafe { (*RAW_STATE).read().unwrap() };
         state.effect_volume
     }
 
-    /// play the sound effect at the volume: `global_volume * effect_volume *
-    /// distance([x,y,z],listener_position)`
-    pub fn play(effect: usize, pos: [f32;3]) {
-        let state = unsafe { (*RAW_STATE).read().unwrap() };
-        let volume = state.global_volume * state.effect_volume * state.distance_model.distance(pos,state.listener);
-        if volume > 0. {
-            state.sender.send(Msg::PlayEffect(effect,volume)).unwrap();
+    pub mod short {
+        //! this module allow to play short sound effects
+        //!
+        //! ```lua
+        //! volume = global_volume * effect_volume * distance(position,listener_position)
+        //! ```
+        //!
+        //! but once a sound effect is played at a volume it doesn't change its volume anymore
+        //!
+        //! this can lead to weird effects for not so short sound effects and with moving source
+
+        use super::super::{RAW_STATE, Msg};
+
+        /// play the sound effect at the volume: `global_volume * effect_volume *
+        /// distance(position, listener_position)`
+        pub fn play(effect: usize, pos: [f32;3]) {
+            let state = unsafe { (*RAW_STATE).read().unwrap() };
+            let volume = state.global_volume * state.effect_volume * state.distance_model.distance(pos,state.listener);
+            if volume > 0. {
+                state.sender.send(Msg::PlayShortEffect(effect,volume)).unwrap();
+            }
+        }
+
+        /// play the sound effect at the position of the listener
+        /// i.e. volume is `global_volume * effect_volume`
+        pub fn play_on_listener(effect: usize) {
+            play(effect,super::listener());
+        }
+
+        /// stop all short sound effects
+        pub fn stop_all() {
+            let state = unsafe { (*RAW_STATE).read().unwrap() };
+            state.sender.send(Msg::StopAllShortEffects).unwrap();
         }
     }
 
-    /// play the sound effect at the position of the listene
-    /// ie volume is `global_volume * effect_volume`
-    pub fn play_on_listener(effect: usize) {
-        play(effect,listener());
-    }
+    pub mod persistent {
+        //! this module allow to play persistent sound effects
+        //!
+        //! ```lua
+        //! volume = global_volume * effect_volume * sum(distance(position,listener_position))
+        //! ```
+        //!
+        //! but once a sound effect is played at a volume it doesn't change its volume anymore
+        //!
+        //! this can lead to weird effects for not so short sound effects and with moving source
 
-    /// stop all sound effects
-    pub fn stop_all() {
-        let state = unsafe { (*RAW_STATE).read().unwrap() };
-        state.sender.send(Msg::StopEffect).unwrap();
+        use super::super::{RAW_STATE, Msg};
+
+        /// add a new source of the effect
+        pub fn add_position(effect: usize, pos: [f32;3]) {
+            let mut state = unsafe { (*RAW_STATE).write().unwrap() };
+            state.persistent_effect_positions[effect].push(pos);
+        }
+
+        // pub fn remove_position(effect: usize, pos: [f32;3]) {
+        //     unimplemented!()
+        // }
+
+        /// remove all sources of the effect
+        pub fn clear_positions(effect: usize) {
+            let mut state = unsafe { (*RAW_STATE).write().unwrap() };
+            state.persistent_effect_positions[effect].clear()
+        }
+
+        /// update the volume of effect computed from sources position and listener position at the
+        /// moment of this call
+        pub fn update_volume(effect: usize) {
+            use std::ops::Mul;
+
+            let state = unsafe { (*RAW_STATE).read().unwrap() };
+            let v = state.persistent_effect_positions[effect].iter()
+                .fold(0f32, |acc, &pos| acc + state.distance_model.distance(pos,state.listener))
+                .mul(state.effect_volume)
+                .mul(state.global_volume);
+
+            state.sender.send(Msg::UpdatePersistentEffectVolume(effect,v)).unwrap();
+        }
+
+        /// pause all persistent effects
+        pub fn pause_all() {
+            let state = unsafe { (*RAW_STATE).read().unwrap() };
+            state.sender.send(Msg::SetPersistentPause(true)).unwrap();
+        }
+
+        /// resume all persistent effects
+        pub fn resume_all() {
+            let state = unsafe { (*RAW_STATE).read().unwrap() };
+            state.sender.send(Msg::SetPersistentPause(false)).unwrap();
+        }
+
+        /// remove all sources of all effects
+        pub fn clear_positions_for_all() {
+            let mut state = unsafe { (*RAW_STATE).write().unwrap() };
+            for p in &mut state.persistent_effect_positions {
+                p.clear()
+            }
+        }
+
+        /// update the volume of all effect
+        pub fn update_volume_for_all() {
+            use std::ops::Mul;
+
+            let state = unsafe { (*RAW_STATE).read().unwrap() };
+
+            let mut volumes = Vec::with_capacity(state.persistent_effect_positions.len());
+
+            for effect_positions in &state.persistent_effect_positions {
+                volumes.push(effect_positions.iter()
+                    .fold(0f32, |acc, &pos| acc + state.distance_model.distance(pos,state.listener))
+                    .mul(state.effect_volume)
+                    .mul(state.global_volume));
+            }
+
+            state.sender.send(Msg::UpdatePersistentEffectsVolume(volumes)).unwrap();
+        }
     }
 
     /// set the position of the listener
@@ -191,13 +296,12 @@ pub mod effect {
     }
 
     /// set the distance model
-    /// take effect for future sounds effects only
     pub fn set_distance_model(d: DistanceModel) {
         let mut state = unsafe { (*RAW_STATE).write().unwrap() };
         state.distance_model = d;
     }
 
-    /// distance model, used to compute sounds effects volume.
+    /// distance model, used to compute sound effects volumes.
     #[derive(Clone,Debug,PartialEq,RustcDecodable,RustcEncodable)]
     pub enum DistanceModel {
         /// if d <= a then 1
@@ -249,11 +353,11 @@ pub mod effect {
     fn test_distance() {
         let origin = [0.,0.,0.];
         let d = DistanceModel::Linear(10.,110.);
-        assert_eq!(d.distance(&origin,&origin), 1.);
-        assert_eq!(d.distance(&origin,&[10.,0.,0.]), 1.);
-        assert_eq!(d.distance(&origin,&[60.,0.,0.]), 0.5);
-        assert!(d.distance(&origin,&[100.,0.,0.]) - 0.1 < 0.00001);
-        assert_eq!(d.distance(&origin,&[150.,0.,0.]), 0.);
+        assert_eq!(d.distance(origin,origin), 1.);
+        assert_eq!(d.distance(origin,[10.,0.,0.]), 1.);
+        assert_eq!(d.distance(origin,[60.,0.,0.]), 0.5);
+        assert!(d.distance(origin,[100.,0.,0.]) - 0.1 < 0.00001);
+        assert_eq!(d.distance(origin,[150.,0.,0.]), 0.);
     }
 
 }
@@ -272,7 +376,7 @@ pub mod music {
         state.sender.send(Msg::SetMusicVolume(state.music_volume*state.global_volume)).unwrap();
     }
 
-    /// get the volume of the music
+    /// return the volume of the music
     pub fn volume() -> f32 {
         let state = unsafe { (*RAW_STATE).read().unwrap() };
         state.music_volume
@@ -412,7 +516,7 @@ pub fn set_volume(v: f32) {
     state.sender.send(Msg::SetMusicVolume(state.music_volume*state.global_volume)).unwrap();
 }
 
-/// get the global volume
+/// return the global volume
 pub fn volume() -> f32 {
     let state = unsafe { (*RAW_STATE).read().unwrap() };
     state.global_volume
@@ -422,7 +526,7 @@ pub fn volume() -> f32 {
 pub fn stop() {
     let state = unsafe { (*RAW_STATE).read().unwrap() };
     state.sender.send(Msg::StopMusic).unwrap();
-    state.sender.send(Msg::StopEffect).unwrap();
+    state.sender.send(Msg::StopAllShortEffects).unwrap();
 }
 
 /// error possible on init
@@ -431,11 +535,11 @@ pub enum InitError {
     /// portaudio error
     PortAudio(pa::error::Error),
     /// sndfile error and the file corresponding
-    SndFile((sndfile::SndFileError,String)),
+    SndFile((sndfile::SndFileError,PathBuf)),
     /// samplerate of this file doesn't match the setting
-    SampleRate(String),
+    SampleRate(PathBuf),
     /// channels of this file cannot be handled properly: must be 1 or 2
-    Channels(String),
+    Channels(PathBuf),
     /// output channels cannot be handled properly: must be 1 or 2
     OutputChannels,
     /// baal has already been initialiazed
@@ -447,9 +551,9 @@ impl fmt::Display for InitError {
         use self::InitError::*;
         match *self {
             PortAudio(ref e) => write!(fmt,"portaudio error: {}",e),
-            SndFile((ref e,ref s)) => write!(fmt,"sndfile error while loading {}: {}",s,e.desc()),
-            SampleRate(ref s) => write!(fmt,"sample rate of {} doesn't match the setting",s),
-            Channels(ref s) => write!(fmt,"channels of {} cannot be handled properly: must be 1 or 2",s),
+            SndFile((ref e,ref s)) => write!(fmt,"sndfile error while loading {}: {}",s.to_string_lossy(),e.desc()),
+            SampleRate(ref s) => write!(fmt,"sample rate of {} doesn't match the setting",s.to_string_lossy()),
+            Channels(ref s) => write!(fmt,"channels of {} cannot be handled properly: must be 1 or 2",s.to_string_lossy()),
             OutputChannels => write!(fmt,"output channels cannot be handled properly: must be 1 or 2"),
             DoubleInit => write!(fmt,"baal has already been initialized"),
         }
@@ -461,29 +565,29 @@ fn check_setting(setting: &Setting) -> Result<(),InitError> {
         return Err(InitError::OutputChannels);
     }
     if setting.check_level.check() {
-        for i in &setting.music {
-            let file = Path::new(&setting.music_dir).join(Path::new(&i));
+        for name in &setting.music {
+            let file = setting.music_dir.as_path().join(name.as_path());
             let snd_file = try!(SndFile::new(file.as_path(),OpenMode::Read)
-                                .map_err(|sfe| InitError::SndFile((sfe,i.clone()))));
+                                .map_err(|sfe| InitError::SndFile((sfe,name.clone()))));
             let snd_info = snd_file.get_sndinfo();
             if (snd_info.samplerate as f64 - setting.sample_rate).abs() > std::f64::EPSILON {
-                return Err(InitError::SampleRate(i.clone()));
+                return Err(InitError::SampleRate(name.clone()));
             }
             if snd_info.channels != 1 && snd_info.channels != 2 {
-                return Err(InitError::Channels(i.clone()));
+                return Err(InitError::Channels(name.clone()));
             }
         }
     }
-    for &(ref i,_) in &setting.effect {
-        let file = Path::new(&setting.effect_dir).join(Path::new(i));
+    for name in setting.short_effect.iter().map(|&(ref name,_)| name).chain(setting.persistent_effect.iter()) {
+        let file = setting.effect_dir.as_path().join(name.as_path());
         let snd_file = try!(SndFile::new(file.as_path(),OpenMode::Read)
-                            .map_err(|sfe| InitError::SndFile((sfe,i.clone()))));
+                            .map_err(|sfe| InitError::SndFile((sfe,name.clone()))));
         let snd_info = snd_file.get_sndinfo();
         if (snd_info.samplerate as f64 - setting.sample_rate).abs() > std::f64::EPSILON {
-            return Err(InitError::SampleRate(i.clone()));
+            return Err(InitError::SampleRate(name.clone()));
         }
         if snd_info.channels != 1 && snd_info.channels != 2 {
-            return Err(InitError::Channels(i.clone()));
+            return Err(InitError::Channels(name.clone()));
         }
     }
     Ok(())
@@ -499,15 +603,21 @@ fn init_state(setting: &Setting, music_status_receiver: Receiver<MusicStatus>, s
 }
 
 fn init_stream(setting: &Setting, music_status_sender: Sender<MusicStatus>, receiver: Receiver<Msg>, abort_receiver: Receiver<()>) -> Result<(), InitError> {
-    let mut effect: Vec<Effect> = setting.effect.iter()
-        .map(|&(ref name,nbr)| Effect::new(
-                Path::new(&setting.effect_dir)
-                .join(Path::new(&name))
-                .as_path()
+    let mut short_effect: Vec<ShortEffect> = setting.short_effect.iter()
+        .map(|&(ref name,nbr)| ShortEffect::new(
+                setting.effect_dir.as_path().join(name.as_path()).as_path()
                 ,nbr as usize
                 ,setting.channels)
             )
         .collect();
+
+    let mut persistent_effect: Vec<PersistentEffect> = setting.persistent_effect.iter()
+        .map(|name| PersistentEffect::new(
+                setting.effect_dir.as_path().join(name.as_path()).as_path()
+                ,setting.channels)
+            )
+        .collect();
+    let mut persistent_effect_pause = false;
 
     let mut music = Music::new((setting.global_volume*setting.music_volume as f32),setting.music_loop,setting.music_transition,setting.channels,setting.sample_rate as f32,music_status_sender);
 
@@ -520,30 +630,43 @@ fn init_stream(setting: &Setting, music_status_sender: Sender<MusicStatus>, rece
                         .map_err(InitError::PortAudio));
 
     let callback = move |pa::OutputStreamCallbackArgs { buffer, frames, .. }| {
-        // if the buffer set to 0 ?
+        // is the buffer already set to 0 ?
         for elt in buffer.iter_mut() { *elt = 0.; }
 
         let frames = frames as i64;
 
         while let Ok(msg) = receiver.try_recv() {
             match msg {
-                Msg::PlayEffect(n,vol) => effect[n].play(vol),
+                Msg::PlayShortEffect(n,vol) => short_effect[n].play(vol),
                 Msg::SetMusicVolume(vol) => music.set_volume(vol),
                 Msg::PlayMusic(snd_file) => music.set_music(snd_file),
                 Msg::PauseMusic => music.pause(),
                 Msg::ResumeMusic => music.resume(),
                 Msg::SeekMusic(frame,mode) => music.seek(frame,mode),
                 Msg::StopMusic => music.stop(),
-                Msg::StopEffect => for e in &mut effect { e.stop(); },
+                Msg::StopAllShortEffects => for e in &mut short_effect { e.stop(); },
                 Msg::SetMusicLoop(l) => music.set_loop(l),
                 Msg::SetMusicTransition(trans) => music.set_transition(trans),
+                Msg::SetPersistentPause(p) => persistent_effect_pause = p,
+                Msg::UpdatePersistentEffectVolume(effect,volume) => persistent_effect[effect].volume = volume,
+                Msg::UpdatePersistentEffectsVolume(volumes) => {
+                    for (&v,e) in volumes.iter().zip(persistent_effect.iter_mut()) {
+                        e.volume = v;
+                    }
+                },
             }
         }
 
         music.fill_buffer(buffer, &mut buffer_one,&mut buffer_two, frames);
 
-        for e in &mut effect {
+        for e in &mut short_effect {
             e.fill_buffer(buffer, &mut buffer_one, &mut buffer_two, frames);
+        }
+
+        if !persistent_effect_pause {
+            for e in &mut persistent_effect {
+                e.fill_buffer(buffer, &mut buffer_one, &mut buffer_two, frames);
+            }
         }
 
         pa::Continue
@@ -628,6 +751,7 @@ struct State {
     music_volume: f32,
     effect_volume: f32,
     music: Vec<PathBuf>,
+    persistent_effect_positions: Vec<Vec<[f32;3]>>,
 }
 
 impl State {
@@ -649,6 +773,7 @@ impl State {
             music_volume: s.music_volume,
             effect_volume: s.effect_volume,
             music: music,
+            persistent_effect_positions: s.persistent_effect.iter().map(|_| vec!()).collect(),
         }
     }
 }
@@ -662,9 +787,12 @@ enum Msg {
     SetMusicTransition(MusicTransition),
     SeekMusic(i64,SeekMode),
     StopMusic,
-    PlayEffect(usize,f32),
-    StopEffect,
+    PlayShortEffect(usize,f32),
+    StopAllShortEffects,
     SetMusicLoop(bool),
+    SetPersistentPause(bool),
+    UpdatePersistentEffectVolume(usize,f32),
+    UpdatePersistentEffectsVolume(Vec<f32>),
 }
 
 #[derive(Debug,Clone,Copy)]
@@ -727,8 +855,40 @@ impl ChannelConv {
     }
 }
 
+struct PersistentEffect {
+    snd_file: SndFile,
+    volume: f32,
+    channel_conv: ChannelConv,
+}
+
+impl PersistentEffect {
+    fn new(path: &Path, output_channels: i32) -> Self {
+        let snd_file = SndFile::new(path,OpenMode::Read).unwrap(); // unwrap because already checked
+        let channel_conv = ChannelConv::from_channels(snd_file.get_sndinfo().channels,output_channels);
+
+        PersistentEffect {
+            snd_file: snd_file,
+            channel_conv: channel_conv,
+            volume: 0f32,
+        }
+    }
+    fn fill_buffer(&mut self, buffer_output: &mut [f32], buffer_one: &mut [f32], buffer_two: &mut [f32], frames: i64) {
+        let frame = self.channel_conv.fill_buffer(
+            &mut self.snd_file,
+            self.volume,
+            buffer_output,
+            buffer_one,
+            buffer_two,
+            frames);
+
+        if frame == 0 {
+            self.snd_file.seek(0,SeekMode::SeekSet);
+        }
+    }
+}
+
 #[derive(Debug)]
-struct Effect {
+struct ShortEffect {
     start: usize,
     end: usize,
     batch: Vec<SndFile>,
@@ -736,8 +896,8 @@ struct Effect {
     channel_conv: ChannelConv,
 }
 
-impl Effect {
-    fn new(path: &Path, capacity: usize, output_channels: i32) -> Effect {
+impl ShortEffect {
+    fn new(path: &Path, capacity: usize, output_channels: i32) -> Self {
         let mut batch = Vec::with_capacity(capacity);
         let mut volume = Vec::with_capacity(capacity);
 
@@ -748,7 +908,7 @@ impl Effect {
 
         let channel_conv = ChannelConv::from_channels(batch[0].get_sndinfo().channels,output_channels);
 
-        Effect {
+        ShortEffect {
             start: 0,
             end: 0,
             batch: batch,

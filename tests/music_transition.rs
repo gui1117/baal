@@ -23,7 +23,8 @@ fn test() {
 
         music_transition: baal::music::MusicTransition::Instant,
 
-        effect: vec!(),
+        short_effect: vec!(),
+        persistent_effect: vec!(),
         music: vec!("first_call_kevin_macleod_incompetech.ogg".into()),
 
         check_level: baal::CheckLevel::Always,
