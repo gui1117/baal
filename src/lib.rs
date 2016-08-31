@@ -211,6 +211,8 @@ pub mod effect {
         //! but once a sound effect is played at a volume it doesn't change its volume anymore
         //!
         //! this can lead to weird effects for not so short sound effects and with moving source
+        //!
+        //! also if its volume is zero then the sound is not played at all
 
         use super::super::{RAW_STATE, Msg};
 
@@ -245,15 +247,15 @@ pub mod effect {
         }
 
         /// pause all persistent effects
-        pub fn pause_all() {
+        pub fn mute_all() {
             let state = unsafe { (*RAW_STATE).read().unwrap() };
-            state.sender.send(Msg::SetPersistentPause(true)).unwrap();
+            state.sender.send(Msg::SetAllPersistentMute(true)).unwrap();
         }
 
         /// resume all persistent effects
-        pub fn resume_all() {
+        pub fn unmute_all() {
             let state = unsafe { (*RAW_STATE).read().unwrap() };
-            state.sender.send(Msg::SetPersistentPause(false)).unwrap();
+            state.sender.send(Msg::SetAllPersistentMute(false)).unwrap();
         }
 
         /// remove all sources of all effects
@@ -647,7 +649,7 @@ fn init_stream(setting: &Setting, music_status_sender: Sender<MusicStatus>, rece
                 Msg::StopAllShortEffects => for e in &mut short_effect { e.stop(); },
                 Msg::SetMusicLoop(l) => music.set_loop(l),
                 Msg::SetMusicTransition(trans) => music.set_transition(trans),
-                Msg::SetPersistentPause(p) => persistent_effect_pause = p,
+                Msg::SetAllPersistentMute(p) => persistent_effect_pause = p,
                 Msg::UpdatePersistentEffectVolume(effect,volume) => persistent_effect[effect].volume = volume,
                 Msg::UpdatePersistentEffectsVolume(volumes) => {
                     for (&v,e) in volumes.iter().zip(persistent_effect.iter_mut()) {
@@ -790,7 +792,7 @@ enum Msg {
     PlayShortEffect(usize,f32),
     StopAllShortEffects,
     SetMusicLoop(bool),
-    SetPersistentPause(bool),
+    SetAllPersistentMute(bool),
     UpdatePersistentEffectVolume(usize,f32),
     UpdatePersistentEffectsVolume(Vec<f32>),
 }
@@ -873,6 +875,8 @@ impl PersistentEffect {
         }
     }
     fn fill_buffer(&mut self, buffer_output: &mut [f32], buffer_one: &mut [f32], buffer_two: &mut [f32], frames: i64) {
+        if self.volume == 0. { return }
+
         let frame = self.channel_conv.fill_buffer(
             &mut self.snd_file,
             self.volume,

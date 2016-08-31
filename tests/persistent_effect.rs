@@ -56,12 +56,12 @@ fn persistent() {
 
     thread::sleep(Duration::from_secs(2));
 
-    baal::effect::persistent::pause_all();
+    baal::effect::persistent::mute_all();
 
     baal::effect::persistent::update_volume_for_all();
     thread::sleep(Duration::from_secs(2));
 
-    baal::effect::persistent::resume_all();
+    baal::effect::persistent::unmute_all();
 
     thread::sleep(Duration::from_secs(2));
 
