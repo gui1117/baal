@@ -976,7 +976,6 @@ impl ShortEffect {
             self.batch[0].seek(0,SeekMode::SeekSet);
             Some((0,0))
         };
-        println!("{:?}",self.start_end);
     }
 }
 
