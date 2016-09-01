@@ -893,8 +893,7 @@ impl PersistentEffect {
 
 #[derive(Debug)]
 struct ShortEffect {
-    start: usize,
-    end: usize,
+    start_end: Option<(usize,usize)>,
     batch: Vec<SndFile>,
     volume: Vec<f32>,
     channel_conv: ChannelConv,
@@ -913,8 +912,7 @@ impl ShortEffect {
         let channel_conv = ChannelConv::from_channels(batch[0].get_sndinfo().channels,output_channels);
 
         ShortEffect {
-            start: 0,
-            end: 0,
+            start_end: None,
             batch: batch,
             volume: volume,
             channel_conv: channel_conv,
@@ -922,40 +920,63 @@ impl ShortEffect {
     }
 
     fn fill_buffer(&mut self, buffer_output: &mut [f32], buffer_one: &mut [f32], buffer_two: &mut [f32], frames: i64) {
-        let range = if self.start < self.end {
-            (self.start..self.end).chain(0..0)
-        } else {
-            (0..self.end).chain(self.start..self.batch.len())
-        };
+        self.start_end = if let Some((start, mut end)) = self.start_end {
+            let range = if start <= end {
+                (start..end+1).chain(0..0)
+            } else {
+                (0..end+1).chain(start..self.batch.len())
+            };
 
-        for i in range {
-            let frame = self.channel_conv.fill_buffer(
-                &mut self.batch[i],
-                self.volume[i],
-                buffer_output,
-                buffer_one,
-                buffer_two,
-                frames);
+            let mut ended = false;
+            for i in range {
+                let frame = self.channel_conv.fill_buffer(
+                    &mut self.batch[i],
+                    self.volume[i],
+                    buffer_output,
+                    buffer_one,
+                    buffer_two,
+                    frames);
 
-            if frame == 0 {
-                self.start = (self.start+1).rem(self.batch.len());
+                if frame == 0 {
+                    ended = true;
+                    if end == 0 {
+                        end = self.batch.len() - 1;
+                    } else {
+                        end -= 1;
+                    }
+                }
             }
-        }
+
+            if ended && (end + 1).rem(self.batch.len()) == start {
+                None
+            } else {
+                Some((start,end))
+            }
+        } else { self.start_end };
     }
 
     fn stop(&mut self) {
-        self.start = 0;
-        self.end = 0;
+        self.start_end = None;
     }
 
     fn play(&mut self,volume: f32) {
-        self.volume[self.end] = volume;
-        self.batch[self.end].seek(0,SeekMode::SeekSet);
+        self.start_end = if let Some((start,end)) = self.start_end {
+            let new_end = (end + 1).rem(self.batch.len());
 
-        self.end = (self.end+1).rem(self.batch.len());
-        if self.start == self.end {
-            self.start = (self.start+1).rem(self.batch.len());
-        }
+            self.volume[new_end] = volume;
+            self.batch[new_end].seek(0,SeekMode::SeekSet);
+
+            if new_end == start {
+                Some(((start+1).rem(self.batch.len()),new_end))
+            } else {
+                Some((start,new_end))
+            }
+        } else {
+            self.volume[0] = volume;
+            self.batch[0].seek(0,SeekMode::SeekSet);
+            Some((0,0))
+        };
+        println!("{:?}",self.start_end);
     }
 }
 
