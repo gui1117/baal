@@ -222,9 +222,23 @@ pub mod effect {
             state.persistent_effect_positions[effect].push(pos);
         }
 
-        // pub fn remove_position(effect: usize, pos: [f32;3]) {
-        //     unimplemented!()
-        // }
+        /// add a vec of new sources of the effect
+        pub fn add_positions(effect: usize, pos: Vec<[f32;3]>) {
+            let mut state = unsafe { (*RAW_STATE).write().unwrap() };
+            for pos in pos {
+                state.persistent_effect_positions[effect].push(pos);
+            }
+        }
+
+        /// add a vec of new sources of the effects
+        pub fn add_positions_for_all(all: Vec<(usize,Vec<[f32;3]>)>) {
+            let mut state = unsafe { (*RAW_STATE).write().unwrap() };
+            for (effect,pos) in all {
+                for pos in pos {
+                    state.persistent_effect_positions[effect].push(pos);
+                }
+            }
+        }
 
         /// remove all sources of the effect
         pub fn clear_positions(effect: usize) {
