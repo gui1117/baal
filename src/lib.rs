@@ -262,14 +262,26 @@ pub mod effect {
 
         /// pause all persistent effects
         pub fn mute_all() {
-            let state = unsafe { (*RAW_STATE).read().unwrap() };
-            state.sender.send(Msg::SetAllPersistentMute(true)).unwrap();
+            let mut state = unsafe { (*RAW_STATE).write().unwrap() };
+            if !state.persistent_mute {
+                state.persistent_mute = true;
+                state.sender.send(Msg::SetAllPersistentMute(true)).unwrap();
+            }
         }
 
         /// resume all persistent effects
         pub fn unmute_all() {
+            let mut state = unsafe { (*RAW_STATE).write().unwrap() };
+            if state.persistent_mute {
+                state.persistent_mute = false;
+                state.sender.send(Msg::SetAllPersistentMute(false)).unwrap();
+            }
+        }
+
+        /// return whereas persistent effects are muted
+        pub fn is_all_mute() -> bool {
             let state = unsafe { (*RAW_STATE).read().unwrap() };
-            state.sender.send(Msg::SetAllPersistentMute(false)).unwrap();
+            state.persistent_mute
         }
 
         /// remove all sources of all effects
@@ -768,6 +780,7 @@ struct State {
     effect_volume: f32,
     music: Vec<PathBuf>,
     persistent_effect_positions: Vec<Vec<[f32;3]>>,
+    persistent_mute: bool,
 }
 
 impl State {
@@ -790,6 +803,7 @@ impl State {
             effect_volume: s.effect_volume,
             music: music,
             persistent_effect_positions: s.persistent_effect.iter().map(|_| vec!()).collect(),
+            persistent_mute: false,
         }
     }
 }
