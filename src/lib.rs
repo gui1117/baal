@@ -223,20 +223,16 @@ pub mod effect {
         }
 
         /// add a vec of new sources of the effect
-        pub fn add_positions(effect: usize, pos: Vec<[f32;3]>) {
+        pub fn add_positions(effect: usize, mut pos: Vec<[f32;3]>) {
             let mut state = unsafe { (*RAW_STATE).write().unwrap() };
-            for pos in pos {
-                state.persistent_effect_positions[effect].push(pos);
-            }
+            state.persistent_effect_positions[effect].append(&mut pos);
         }
 
         /// add a vec of new sources of the effects
         pub fn add_positions_for_all(all: Vec<(usize,Vec<[f32;3]>)>) {
             let mut state = unsafe { (*RAW_STATE).write().unwrap() };
-            for (effect,pos) in all {
-                for pos in pos {
-                    state.persistent_effect_positions[effect].push(pos);
-                }
+            for (effect,mut pos) in all {
+                state.persistent_effect_positions[effect].append(&mut pos);
             }
         }
 
@@ -244,6 +240,14 @@ pub mod effect {
         pub fn clear_positions(effect: usize) {
             let mut state = unsafe { (*RAW_STATE).write().unwrap() };
             state.persistent_effect_positions[effect].clear()
+        }
+
+        /// remove all sources of all effects
+        pub fn clear_positions_for_all() {
+            let mut state = unsafe { (*RAW_STATE).write().unwrap() };
+            for p in &mut state.persistent_effect_positions {
+                p.clear()
+            }
         }
 
         /// update the volume of effect computed from sources position and listener position at the
@@ -258,6 +262,24 @@ pub mod effect {
                 .mul(state.global_volume);
 
             state.sender.send(Msg::UpdatePersistentEffectVolume(effect,v)).unwrap();
+        }
+
+        /// update the volume of all effect
+        pub fn update_volume_for_all() {
+            use std::ops::Mul;
+
+            let state = unsafe { (*RAW_STATE).read().unwrap() };
+
+            let mut volumes = Vec::with_capacity(state.persistent_effect_positions.len());
+
+            for effect_positions in &state.persistent_effect_positions {
+                volumes.push(effect_positions.iter()
+                    .fold(0f32, |acc, &pos| acc + state.distance_model.distance(pos,state.listener))
+                    .mul(state.effect_volume)
+                    .mul(state.global_volume));
+            }
+
+            state.sender.send(Msg::UpdatePersistentEffectsVolume(volumes)).unwrap();
         }
 
         /// pause all persistent effects
@@ -282,32 +304,6 @@ pub mod effect {
         pub fn is_all_mute() -> bool {
             let state = unsafe { (*RAW_STATE).read().unwrap() };
             state.persistent_mute
-        }
-
-        /// remove all sources of all effects
-        pub fn clear_positions_for_all() {
-            let mut state = unsafe { (*RAW_STATE).write().unwrap() };
-            for p in &mut state.persistent_effect_positions {
-                p.clear()
-            }
-        }
-
-        /// update the volume of all effect
-        pub fn update_volume_for_all() {
-            use std::ops::Mul;
-
-            let state = unsafe { (*RAW_STATE).read().unwrap() };
-
-            let mut volumes = Vec::with_capacity(state.persistent_effect_positions.len());
-
-            for effect_positions in &state.persistent_effect_positions {
-                volumes.push(effect_positions.iter()
-                    .fold(0f32, |acc, &pos| acc + state.distance_model.distance(pos,state.listener))
-                    .mul(state.effect_volume)
-                    .mul(state.global_volume));
-            }
-
-            state.sender.send(Msg::UpdatePersistentEffectsVolume(volumes)).unwrap();
         }
     }
 
@@ -642,7 +638,8 @@ fn init_stream(setting: &Setting, music_status_sender: Sender<MusicStatus>, rece
     let mut persistent_effect: Vec<PersistentEffect> = setting.persistent_effect.iter()
         .map(|name| PersistentEffect::new(
                 setting.effect_dir.as_path().join(name.as_path()).as_path()
-                ,setting.channels)
+                ,setting.channels
+                ,setting.frames_per_buffer)
             )
         .collect();
     let mut persistent_effect_pause = false;
@@ -883,39 +880,80 @@ impl ChannelConv {
             },
         }
     }
+
+    fn create_buffer(&self, sndfile: &mut SndFile) -> Vec<f32> {
+        let buffer_resize_len = match *self {
+            ChannelConv::OneIntoOne | ChannelConv::TwoIntoOne => 256,
+            ChannelConv::OneIntoTwo | ChannelConv::TwoIntoTwo => 512,
+        };
+
+        let mut buffer = vec!(0f32;buffer_resize_len);
+        let mut buffer_one = [0f32;256];
+        let mut buffer_two = [0f32;512];
+
+        let mut frame = self.fill_buffer(sndfile, 1f32, &mut buffer, &mut buffer_one, &mut buffer_two, 256);
+
+        while frame == 256 {
+            let old_len = buffer.len();
+            let new_len = old_len + buffer_resize_len;
+            buffer.resize(new_len,0f32);
+            frame = self.fill_buffer(sndfile, 1f32, buffer.split_at_mut(old_len).1, &mut buffer_one, &mut buffer_two, 256);
+        }
+
+        while let Some(&0f32) = buffer.last() {
+            buffer.pop();
+        }
+        buffer.shrink_to_fit();
+        buffer
+    }
 }
 
 struct PersistentEffect {
-    snd_file: SndFile,
+    snd_buffer: Vec<f32>,
+    cursor: usize,
     volume: f32,
-    channel_conv: ChannelConv,
 }
 
 impl PersistentEffect {
-    fn new(path: &Path, output_channels: i32) -> Self {
-        let snd_file = SndFile::new(path,OpenMode::Read).unwrap(); // unwrap because already checked
+    fn new(path: &Path, output_channels: i32, frames_per_buffer: u32) -> Self {
+        let mut snd_file = SndFile::new(path,OpenMode::Read).unwrap(); // unwrap because already checked
         let channel_conv = ChannelConv::from_channels(snd_file.get_sndinfo().channels,output_channels);
 
+        let mut snd_buffer = channel_conv.create_buffer(&mut snd_file);
+
+        // minimal length is needed in fill_buffer method
+        let buffer_len_min = output_channels as usize * frames_per_buffer as usize;
+        if snd_buffer.len() == 0 {
+            snd_buffer = vec!(0f32; buffer_len_min);
+        } else {
+            while snd_buffer.len() < buffer_len_min {
+                let mut clone = snd_buffer.clone();
+                snd_buffer.append(&mut clone);
+            }
+        }
+
         PersistentEffect {
-            snd_file: snd_file,
-            channel_conv: channel_conv,
+            snd_buffer: snd_buffer,
+            cursor: 0,
             volume: 0f32,
         }
     }
-    fn fill_buffer(&mut self, buffer_output: &mut [f32], buffer_one: &mut [f32], buffer_two: &mut [f32], frames: i64) {
+    fn fill_buffer(&mut self, buffer_output: &mut [f32], _: &mut [f32], _: &mut [f32], _: i64) {
         if self.volume == 0. { return }
 
-        let frame = self.channel_conv.fill_buffer(
-            &mut self.snd_file,
-            self.volume,
-            buffer_output,
-            buffer_one,
-            buffer_two,
-            frames);
+        // note that it cannot overflow vector two times because we assure a minimal length at
+        // creation
+        let range = if self.cursor+buffer_output.len() <= self.snd_buffer.len() {
+            (self.cursor..self.cursor+buffer_output.len()).chain(0..0)
+        } else {
+            (0..(self.cursor+buffer_output.len()).rem(self.snd_buffer.len())).chain(self.cursor..self.snd_buffer.len())
+        };
 
-        if frame == 0 {
-            self.snd_file.seek(0,SeekMode::SeekSet);
+        for (i,j) in range.enumerate() {
+            buffer_output[i] = self.snd_buffer[j];
         }
+
+        self.cursor = (self.cursor+buffer_output.len()).rem(self.snd_buffer.len());
     }
 }
 
