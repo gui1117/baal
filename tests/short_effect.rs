@@ -5,7 +5,7 @@ use std::time::Duration;
 
 #[test]
 fn persistent() {
-    let mut setting = baal::Setting {
+    let setting = baal::Setting {
         channels: 1,
         sample_rate: 44100.,
         frames_per_buffer: 64,
@@ -23,7 +23,7 @@ fn persistent() {
 
         music_transition: baal::music::MusicTransition::Instant,
 
-        short_effect: vec!(("first_call_kevin_macleod_incompetech.ogg".into(),1)),
+        short_effect: vec!("first_call_kevin_macleod_incompetech.ogg".into()),
         persistent_effect: vec!(),
         music: vec!(),
 
@@ -36,10 +36,6 @@ fn persistent() {
     thread::sleep(Duration::from_secs(1));
     baal::effect::short::play(0,[0.0,0.0,0.0]);
     thread::sleep(Duration::from_secs(1));
-
-    setting.short_effect[0].1 = 2;
-    baal::reset(&setting).expect("fail to reset baal");
-
     baal::effect::short::play(0,[0.0,0.0,0.0]);
     thread::sleep(Duration::from_secs(1));
     baal::effect::short::play(0,[0.0,0.0,0.0]);

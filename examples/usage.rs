@@ -22,7 +22,7 @@ fn main() {
 
         music_transition: baal::music::MusicTransition::Instant,
 
-        short_effect: vec!(("explosion.ogg".into(),1),("stereo_explosion.ogg".into(),1)),
+        short_effect: vec!("explosion.ogg".into(),"stereo_explosion.ogg".into()),
         persistent_effect: vec!("electro_fly_from_xonotic_game.ogg".into()),
         music: vec!("village.ogg".into()),
 

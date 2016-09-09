@@ -23,7 +23,7 @@ fn test() {
 
         music_transition: baal::music::MusicTransition::Instant,
 
-        short_effect: vec!(("shoot.ogg".into(),10),("hit.ogg".into(),10)),
+        short_effect: vec!("shoot.ogg".into(),"hit.ogg".into()),
         persistent_effect: vec!(),
         music: vec!("village.ogg".into()),
 
