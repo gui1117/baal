@@ -947,7 +947,7 @@ impl PersistentEffect {
         };
 
         for (i,j) in range.enumerate() {
-            buffer_output[i] += self.snd_buffer[j];
+            buffer_output[i] += self.snd_buffer[j]*self.volume;
         }
 
         self.cursor = (self.cursor+buffer_output.len()).rem(self.snd_buffer.len());
