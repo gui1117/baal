@@ -973,14 +973,12 @@ impl ShortEffect {
     }
 
     fn fill_buffer(&mut self, buffer_output: &mut [f32], _: &mut [f32], _: &mut [f32], _: i64) {
+        use std::cmp::min;
+
         let snd_buffer_len = self.snd_buffer.len();
 
         for &mut (ref mut cursor,volume) in &mut self.cursors {
-            let range_end = if *cursor+buffer_output.len() < snd_buffer_len {
-                *cursor+buffer_output.len()
-            } else {
-                snd_buffer_len
-            };
+            let range_end = min(snd_buffer_len, *cursor+buffer_output.len());
 
             for (i,j) in (*cursor..range_end).enumerate() {
                 buffer_output[i] += self.snd_buffer[j]*volume;
@@ -992,64 +990,14 @@ impl ShortEffect {
         self.cursors.retain(|&(cursor,_)| {
             cursor < snd_buffer_len
         });
-        // self.start_end = if let Some((start, mut end)) = self.start_end {
-        //     let range = if start <= end {
-        //         (start..end+1).chain(0..0)
-        //     } else {
-        //         (0..end+1).chain(start..self.batch.len())
-        //     };
-
-        //     let mut ended = false;
-        //     for i in range {
-        //         let frame = self.channel_conv.fill_buffer(
-        //             &mut self.batch[i],
-        //             self.volume[i],
-        //             buffer_output,
-        //             buffer_one,
-        //             buffer_two,
-        //             frames);
-
-        //         if frame == 0 {
-        //             ended = true;
-        //             if end == 0 {
-        //                 end = self.batch.len() - 1;
-        //             } else {
-        //                 end -= 1;
-        //             }
-        //         }
-        //     }
-
-        //     if ended && (end + 1).rem(self.batch.len()) == start {
-        //         None
-        //     } else {
-        //         Some((start,end))
-        //     }
-        // } else { self.start_end };
     }
 
     fn stop(&mut self) {
         self.cursors.clear();
-        // self.start_end = None;
     }
 
     fn play(&mut self,volume: f32) {
         self.cursors.push((0,volume));
-        // self.start_end = if let Some((start,end)) = self.start_end {
-        //     let new_end = (end + 1).rem(self.batch.len());
-
-        //     self.volume[new_end] = volume;
-        //     self.batch[new_end].seek(0,SeekMode::SeekSet);
-
-        //     if new_end == start {
-        //         Some(((start+1).rem(self.batch.len()),new_end))
-        //     } else {
-        //         Some((start,new_end))
-        //     }
-        // } else {
-        //     self.volume[0] = volume;
-        //     self.batch[0].seek(0,SeekMode::SeekSet);
-        //     Some((0,0))
-        // };
     }
 }
 
