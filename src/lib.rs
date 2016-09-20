@@ -559,7 +559,7 @@ pub enum InitError {
     /// sndfile error and the file corresponding
     SndFile((sndfile::SndFileError,PathBuf)),
     /// samplerate of this file doesn't match the setting
-    SampleRate(PathBuf),
+    SampleRate(PathBuf,f64,f64),
     /// channels of this file cannot be handled properly: must be 1 or 2
     Channels(PathBuf),
     /// output channels cannot be handled properly: must be 1 or 2
@@ -574,7 +574,7 @@ impl fmt::Display for InitError {
         match *self {
             PortAudio(ref e) => write!(fmt,"portaudio error: {}",e),
             SndFile((ref e,ref s)) => write!(fmt,"sndfile error while loading {}: {}",s.to_string_lossy(),e.desc()),
-            SampleRate(ref s) => write!(fmt,"sample rate of {} doesn't match the setting",s.to_string_lossy()),
+            SampleRate(ref s, a, b) => write!(fmt,"sample rate of {} ({} Hz) doesn't match the setting ({} Hz)",s.to_string_lossy(),a,b),
             Channels(ref s) => write!(fmt,"channels of {} cannot be handled properly: must be 1 or 2",s.to_string_lossy()),
             OutputChannels => write!(fmt,"output channels cannot be handled properly: must be 1 or 2"),
             DoubleInit => write!(fmt,"baal has already been initialized"),
@@ -582,35 +582,32 @@ impl fmt::Display for InitError {
     }
 }
 
+fn check_snd(name: &PathBuf, dir: &PathBuf, setting: &Setting) -> Result<(),InitError> {
+    let file = dir.as_path().join(name.as_path());
+    let snd_file = try!(SndFile::new(file.as_path(),OpenMode::Read)
+                        .map_err(|sfe| InitError::SndFile((sfe,name.clone()))));
+    let snd_info = snd_file.get_sndinfo();
+    if (snd_info.samplerate as f64 - setting.sample_rate).abs() > std::f64::EPSILON {
+        return Err(InitError::SampleRate(name.clone(),snd_info.samplerate as f64,setting.sample_rate));
+    }
+    if snd_info.channels != 1 && snd_info.channels != 2 {
+        return Err(InitError::Channels(name.clone()));
+    }
+    Ok(())
+}
+
 fn check_setting(setting: &Setting) -> Result<(),InitError> {
     if setting.channels != 1 && setting.channels != 2 {
         return Err(InitError::OutputChannels);
     }
+
     if setting.check_level.check() {
         for name in &setting.music {
-            let file = setting.music_dir.as_path().join(name.as_path());
-            let snd_file = try!(SndFile::new(file.as_path(),OpenMode::Read)
-                                .map_err(|sfe| InitError::SndFile((sfe,name.clone()))));
-            let snd_info = snd_file.get_sndinfo();
-            if (snd_info.samplerate as f64 - setting.sample_rate).abs() > std::f64::EPSILON {
-                return Err(InitError::SampleRate(name.clone()));
-            }
-            if snd_info.channels != 1 && snd_info.channels != 2 {
-                return Err(InitError::Channels(name.clone()));
-            }
+            try!(check_snd(name,&setting.music_dir,setting));
         }
     }
     for name in setting.short_effect.iter().chain(setting.persistent_effect.iter()) {
-        let file = setting.effect_dir.as_path().join(name.as_path());
-        let snd_file = try!(SndFile::new(file.as_path(),OpenMode::Read)
-                            .map_err(|sfe| InitError::SndFile((sfe,name.clone()))));
-        let snd_info = snd_file.get_sndinfo();
-        if (snd_info.samplerate as f64 - setting.sample_rate).abs() > std::f64::EPSILON {
-            return Err(InitError::SampleRate(name.clone()));
-        }
-        if snd_info.channels != 1 && snd_info.channels != 2 {
-            return Err(InitError::Channels(name.clone()));
-        }
+        try!(check_snd(name,&setting.effect_dir,setting));
     }
     Ok(())
 }
