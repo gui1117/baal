@@ -3,14 +3,31 @@
 //! be careful that `set_volume`, `set_listener`, `set_distance_model`
 //! only affect future short sound effects
 
+use rodio::decoder::Decoder;
+use rodio::Sink;
+use rodio::Source;
+
+use std::fs::File;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::AtomicPtr;
+use std::sync::atomic::Ordering::Relaxed;
+use std::sync::Arc;
+use std::time::Duration;
+use std::path::PathBuf;
+
+use super::InitError;
 use super::RAW_STATE;
+use super::Setting;
+use super::source;
 
 pub struct State {
     listener: [f32;3],
     distance_model: DistanceModel,
     effect_volume: f32,
-    persistent_effect_positions: Vec<Vec<[f32;3]>>,
-    persistent_mute: bool,
+    // final_volume: Arc<AtomicPtr<f32>>,
+    // pause: Arc<AtomicBool>,
+    // persistent_effect_positions: Vec<Vec<[f32;3]>>,
+    // persistent_mute: bool,
 }
 
 #[doc(hidden)]
@@ -50,7 +67,7 @@ pub fn set_distance_model(d: DistanceModel) {
 }
 
 /// distance model, used to compute sound effects volumes.
-#[derive(Clone,Debug,PartialEq,RustcDecodable,RustcEncodable)]
+#[derive(Clone,Debug,PartialEq)]
 pub enum DistanceModel {
     /// if d <= a then 1
     ///

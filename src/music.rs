@@ -2,32 +2,53 @@
 
 use rodio::decoder::Decoder;
 use rodio::Sink;
+use rodio::Source;
 
 use std::fs::File;
+use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicPtr;
+use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;
 use std::time::Duration;
-use std::sync::mpsc::Receiver;
+use std::path::PathBuf;
 
 use super::InitError;
 use super::RAW_STATE;
 use super::Setting;
+use super::source;
 
+struct Current {
+    index: usize,
+    fade_out: Arc<AtomicBool>,
+    sink: Sink,
+}
+
+#[doc(hidden)]
 pub struct State {
-    index: Option<usize>,
     transition: MusicTransition,
     volume: f32,
-    sources: Vec<Decoder<File>>,
+    final_volume: Arc<AtomicPtr<f32>>,
+    pause: Arc<AtomicBool>,
+    sources: Vec<PathBuf>,
+    current: Option<Current>,
 }
 impl State {
+    #[doc(hidden)]
     pub fn init(setting: &Setting) -> Result<State,InitError> {
+        for source in &setting.musics {
+            let file = try!(File::open(source.clone()).map_err(|e| InitError::FileOpenError(source.clone(), e)));
+            try!(Decoder::new(file).map_err(|e| InitError::DecodeError(source.clone(), e)));
+        }
         Ok(State {
-            index: None,
             transition: setting.music_transition,
+            final_volume: Arc::new(AtomicPtr::new(&mut (setting.music_volume * setting.global_volume))),
+            pause: Arc::new(AtomicBool::new(false)),
             volume: setting.music_volume,
-            sources: vec!(),
+            sources: setting.musics.clone(),
+            current: None,
         })
     }
+    #[doc(hidden)]
     pub fn reset(&mut self, setting: &Setting) -> Result<(),InitError> {
         *self = try!(State::init(setting));
         Ok(())
@@ -39,7 +60,7 @@ impl State {
 pub fn set_volume(v: f32) {
     let mut state = unsafe { (*RAW_STATE).write().unwrap() };
     state.music.volume = v;
-    update_volume();
+    state.music.final_volume.store(&mut (state.music.volume * state.global_volume), Relaxed);
 }
 
 #[doc(hidden)]
@@ -55,12 +76,48 @@ pub fn volume() -> f32 {
 }
 
 /// play the music
+#[inline]
 pub fn play(music: usize) {
-    // let mut state = unsafe { (*RAW_STATE).write().unwrap() };
+    use self::MusicTransition::*;
 
-    // state.music_index = Some(music);
-    // let snd_file = SndFile::new(&state.music[music],OpenMode::Read).unwrap();
-    // state.sender.send(Msg::PlayMusic(snd_file)).unwrap();
+    let mut state = unsafe { (*RAW_STATE).write().unwrap() };
+
+    stop();
+
+    let fade_out = Arc::new(AtomicBool::new(false));
+    let sink = Sink::new(&state.endpoint);
+
+    let source = Decoder::new(File::open(state.music.sources[music].clone()).unwrap()).unwrap();
+    let source = match state.music.transition {
+        Smooth(duration) => {
+            let source = source::fade_out_ctrl(source, duration, fade_out.clone());
+            let source = source.fade_in(duration);
+            let source = source::wait(source, duration);
+            source
+        },
+        Overlap(duration) => {
+            let source = source::fade_out_ctrl(source, duration, fade_out.clone());
+            let source = source.fade_in(duration);
+            let source = source::wait(source, Duration::new(0, 0));
+            source
+        }
+        Instant => {
+            let source = source::fade_out_ctrl(source, Duration::new(0, 0), fade_out.clone());
+            let source = source.fade_in(Duration::new(0, 0));
+            let source = source::wait(source, Duration::new(0, 0));
+            source
+        },
+    };
+    let source = source::amplify_ctrl(source, state.music.final_volume.clone());
+    let source = source::play_pause_ctrl(source, state.music.pause.clone());
+
+    sink.append(source);
+
+    state.music.current = Some(Current {
+        index: music,
+        sink: sink,
+        fade_out: fade_out,
+    });
 }
 
 /// play the music if is different from the current one
@@ -78,21 +135,37 @@ pub fn play_or_continue(music: usize) {
 
 /// pause the music
 pub fn pause() {
-    // let state = unsafe { (*RAW_STATE).read().unwrap() };
-    // state.sender.send(Msg::PauseMusic).unwrap();
+    let state = unsafe { (*RAW_STATE).read().unwrap() };
+    state.music.pause.store(true,Relaxed);
 }
 
 /// resume the music
 pub fn resume() {
-    // let state = unsafe { (*RAW_STATE).read().unwrap() };
-    // state.sender.send(Msg::ResumeMusic).unwrap();
+    let state = unsafe { (*RAW_STATE).read().unwrap() };
+    state.music.pause.store(false,Relaxed);
 }
 
 /// stop the music
+#[inline]
 pub fn stop() {
-    // let mut state = unsafe { (*RAW_STATE).write().unwrap() };
-    // state.music_index = None;
-    // state.sender.send(Msg::StopMusic).unwrap();
+    let mut state = unsafe { (*RAW_STATE).write().unwrap() };
+
+    if let Some(current) = state.music.current.take() {
+        current.fade_out.store(true,Relaxed);
+        current.sink.detach();
+    }
+}
+
+/// return whereas music is stopped
+pub fn is_stopped() -> bool {
+    let state = unsafe { (*RAW_STATE).read().unwrap() };
+    state.music.current.is_none()
+}
+
+/// return whereas music is paused
+pub fn is_paused() -> bool {
+    let state = unsafe { (*RAW_STATE).read().unwrap() };
+    state.music.pause.load(Relaxed)
 }
 
 /// return the current type of transition
@@ -105,13 +178,12 @@ pub fn transition() -> MusicTransition {
 pub fn set_transition(trans: MusicTransition) {
     let mut state = unsafe { (*RAW_STATE).write().unwrap() };
     state.music.transition = trans;
-    //TODO clear transition if current is happening
 }
 
 /// return the index of the current music if any
 pub fn index() -> Option<usize> {
     let state = unsafe { (*RAW_STATE).read().unwrap() };
-    state.music.index
+    state.music.current.as_ref().map(|current| current.index)
 }
 
 /// the status of the music
@@ -126,12 +198,12 @@ pub enum MusicStatus {
 }
 
 /// the type of transition between musics
-#[derive(Clone,Copy,Debug,PartialEq,RustcDecodable,RustcEncodable)]
+#[derive(Clone,Copy,Debug,PartialEq)]
 pub enum MusicTransition {
-    /// the current music end smoothly and then the new one is played. (in second)
-    Smooth(f32),
-    /// the current music end smoothly while the new one begin smoothly. (in second)
-    Overlap(f32),
+    /// the current music end smoothly and then the new one is played.
+    Smooth(Duration),
+    /// the current music end smoothly while the new one begin smoothly.
+    Overlap(Duration),
     /// the current music is stopped and the new one is played.
     Instant,
 }

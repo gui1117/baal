@@ -1,24 +1,27 @@
-//! TODO doc
+//! TODO
 
 #![warn(missing_docs)]
 
-extern crate rustc_serialize;
 extern crate rodio;
 
 pub mod music;
+// pub mod effect;
 
 mod source;
 
 use std::sync::RwLock;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::fmt;
+use std::io;
+
+use rodio::decoder::DecoderError;
 
 // use effect::DistanceModel;
 use music::MusicTransition;
 
 static mut RAW_STATE: *mut RwLock<State> = 0 as *mut RwLock<State>;
 
-#[derive(Clone,Debug,PartialEq,RustcEncodable,RustcDecodable)]
+#[derive(Clone,Debug,PartialEq)]
 /// set musics, effects, volumes and audio player.
 ///
 /// impl rustc_decodable and rustc_encodable
@@ -86,6 +89,10 @@ pub enum InitError {
     DoubleInit,
     /// no endpoint available
     NoDefaultEndpoint,
+    /// failed to open file
+    FileOpenError(PathBuf, io::Error),
+    /// failed to decode file
+    DecodeError(PathBuf, DecoderError),
 }
 
 impl fmt::Display for InitError {
@@ -94,6 +101,8 @@ impl fmt::Display for InitError {
         match *self {
             DoubleInit => write!(fmt, "baal has already been initialized"),
             NoDefaultEndpoint => write!(fmt, "no endpoint available"),
+            FileOpenError(ref source, ref error) => write!(fmt, "cannot open file {} : {}", source.to_string_lossy(), error),
+            DecodeError(ref source, ref error) => write!(fmt, "cannot decode file {} : {:?}", source.to_string_lossy(), error),
         }
     }
 }
