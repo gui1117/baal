@@ -49,7 +49,8 @@ impl State {
         for source in &setting.persistent_effects {
             let p_final_volume = Arc::new(AtomicPtr::new(&mut 0f32));
 
-            let file = try!(File::open(source.clone()).map_err(|e| InitError::FileOpenError(source.clone(), e)));
+            let path = setting.effect_dir.join(source);
+            let file = try!(File::open(path.clone()).map_err(|e| InitError::FileOpenError(source.clone(), e)));
             let source = try!(Decoder::new(file).map_err(|e| InitError::DecodeError(source.clone(), e)));
             let source = source::amplify_ctrl(source, p_final_volume.clone());
             let source = source::amplify_ctrl(source, final_volume.clone());
@@ -66,7 +67,8 @@ impl State {
         let mut short_sources = vec!();
 
         for source in &setting.short_effects {
-            let file = try!(File::open(source.clone()).map_err(|e| InitError::FileOpenError(source.clone(), e)));
+            let path = setting.effect_dir.join(source);
+            let file = try!(File::open(path.clone()).map_err(|e| InitError::FileOpenError(source.clone(), e)));
             let source = try!(Decoder::new(file).map_err(|e| InitError::DecodeError(source.clone(), e)));
             let source = source.buffered();
 

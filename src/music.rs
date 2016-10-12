@@ -35,16 +35,22 @@ pub struct State {
 impl State {
     #[doc(hidden)]
     pub fn init(setting: &Setting) -> Result<State,InitError> {
+        let mut sources = vec!();
+
         for source in &setting.musics {
-            let file = try!(File::open(source.clone()).map_err(|e| InitError::FileOpenError(source.clone(), e)));
+            let path = setting.music_dir.join(source);
+            let file = try!(File::open(path.clone()).map_err(|e| InitError::FileOpenError(source.clone(), e)));
             try!(Decoder::new(file).map_err(|e| InitError::DecodeError(source.clone(), e)));
+
+            sources.push(path);
         }
+
         Ok(State {
             transition: setting.music_transition,
             final_volume: Arc::new(AtomicPtr::new(&mut (setting.music_volume * setting.global_volume))),
             pause: Arc::new(AtomicBool::new(false)),
             volume: setting.music_volume,
-            sources: setting.musics.clone(),
+            sources: sources,
             current: None,
         })
     }

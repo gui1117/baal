@@ -6,10 +6,6 @@ use std::time::Duration;
 #[test]
 fn persistent() {
     let setting = baal::Setting {
-        channels: 1,
-        sample_rate: 44100.,
-        frames_per_buffer: 64,
-
         effect_dir: "assets/musics".into(),
         music_dir: "assets/musics".into(),
 
@@ -19,15 +15,11 @@ fn persistent() {
 
         distance_model: baal::effect::DistanceModel::Linear(1.,4.),
 
-        music_loop: true,
-
         music_transition: baal::music::MusicTransition::Instant,
 
-        short_effect: vec!("first_call_kevin_macleod_incompetech.ogg".into()),
-        persistent_effect: vec!(),
-        music: vec!(),
-
-        check_level: baal::CheckLevel::Always,
+        short_effects: vec!("first_call_kevin_macleod_incompetech.ogg".into()),
+        persistent_effects: vec!(),
+        musics: vec!(),
     };
 
     baal::init(&setting).expect("init baal");

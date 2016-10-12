@@ -5,10 +5,6 @@ use std::time::Duration;
 
 fn main() {
     let setting = baal::Setting {
-        channels: 2,
-        sample_rate: 44100.,
-        frames_per_buffer: 64,
-
         effect_dir: "assets/effects".into(),
         music_dir: "assets/musics".into(),
 
@@ -18,15 +14,11 @@ fn main() {
 
         distance_model: baal::effect::DistanceModel::Linear(10.,110.),
 
-        music_loop: true,
-
         music_transition: baal::music::MusicTransition::Instant,
 
-        short_effect: vec!("explosion.ogg".into(),"stereo_explosion.ogg".into()),
-        persistent_effect: vec!("electro_fly_from_xonotic_game.ogg".into()),
-        music: vec!("village.ogg".into()),
-
-        check_level: baal::CheckLevel::Always,
+        short_effects: vec!("explosion.ogg".into(),"stereo_explosion.ogg".into()),
+        persistent_effects: vec!("electro_fly_from_xonotic_game.ogg".into()),
+        musics: vec!("village.ogg".into()),
     };
 
     baal::init(&setting).unwrap();
