@@ -14,7 +14,7 @@ use rodio::source::Buffered;
 
 use std::fs::File;
 use std::sync::atomic::AtomicBool;
-use std::sync::atomic::AtomicPtr;
+use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;
 
@@ -28,10 +28,10 @@ pub struct State {
     listener: [f32;3],
     distance_model: DistanceModel,
     volume: f32,
-    final_volume: Arc<AtomicPtr<f32>>,
+    final_volume: Arc<AtomicUsize>,
     pause: Arc<AtomicBool>,
     persistent_positions: Vec<Vec<[f32;3]>>,
-    persistent_final_volumes: Vec<Arc<AtomicPtr<f32>>>,
+    persistent_final_volumes: Vec<Arc<AtomicUsize>>,
     _persistent_sinks: Vec<Sink>,
     short_sinks: Vec<Sink>,
     short_sources: Vec<Buffered<Decoder<File>>>,
@@ -40,18 +40,20 @@ impl State {
     #[doc(hidden)]
     pub fn init(setting: &Setting, endpoint: &Endpoint) -> Result<State,InitError> {
         let pause = Arc::new(AtomicBool::new(false));
-        let final_volume = Arc::new(AtomicPtr::new(&mut (setting.effect_volume * setting.global_volume)));
+        let final_volume = Arc::new(AtomicUsize::new((setting.effect_volume * setting.global_volume * 10_000.) as usize));
 
         let mut persistent_final_volumes = vec!();
         let mut persistent_positions = vec!();
         let mut persistent_sinks = vec!();
 
         for source in &setting.persistent_effects {
-            let p_final_volume = Arc::new(AtomicPtr::new(&mut 0f32));
+            let p_final_volume = Arc::new(AtomicUsize::new(0));
 
             let path = setting.effect_dir.join(source);
             let file = try!(File::open(path.clone()).map_err(|e| InitError::FileOpenError(source.clone(), e)));
             let source = try!(Decoder::new(file).map_err(|e| InitError::DecodeError(source.clone(), e)));
+            let source = source.buffered();
+            let source = source.repeat_infinite();
             let source = source::amplify_ctrl(source, p_final_volume.clone());
             let source = source::amplify_ctrl(source, final_volume.clone());
             let source = source::play_pause_ctrl(source, pause.clone());
@@ -102,14 +104,13 @@ impl State {
 pub fn set_volume(v: f32) {
     let mut state = unsafe { (*RAW_STATE).write().unwrap() };
     state.effect.volume = v;
-    update_volume();
+    update_volume(&mut *state);
 }
 
 #[doc(hidden)]
 #[inline]
-pub fn update_volume() {
-    let state = unsafe { (*RAW_STATE).read().unwrap() };
-    state.effect.final_volume.store(&mut (state.effect.volume * state.global_volume), Relaxed);
+pub fn update_volume(state: &mut super::State) {
+    state.effect.final_volume.store((state.effect.volume * state.global_volume * 10_000f32) as usize, Relaxed);
 }
 
 

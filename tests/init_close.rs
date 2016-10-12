@@ -1,8 +1,5 @@
 extern crate baal;
 
-use std::thread;
-use std::time::Duration;
-
 #[test]
 fn test() {
     let setting = baal::Setting {
@@ -29,9 +26,7 @@ fn test() {
         for i in 0..7 {
             let p = (i*20) as f32;
             baal::effect::short::play(0,[p,0.,0.]);
-            thread::sleep(Duration::from_millis(1));
             baal::effect::short::play(1,[p,0.,0.]);
-            thread::sleep(Duration::from_millis(1));
         }
 
         baal::close();

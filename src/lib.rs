@@ -63,25 +63,6 @@ pub struct Setting {
     pub musics: Vec<PathBuf>,
 }
 
-
-/// set the global volume
-pub fn set_global_volume(v: f32) {
-    let mut state = unsafe { (*RAW_STATE).write().unwrap() };
-    state.global_volume = v;
-    update_volume();
-}
-
-#[inline]
-fn update_volume() {
-    music::update_volume();
-}
-
-/// return the global volume
-pub fn global_volume() -> f32 {
-    let state = unsafe { (*RAW_STATE).read().unwrap() };
-    state.global_volume
-}
-
 /// error possible on init
 #[derive(Debug)]
 pub enum InitError {
@@ -107,13 +88,43 @@ impl fmt::Display for InitError {
     }
 }
 
+#[doc(hidden)]
+pub struct State {
+    global_volume: f32,
+    endpoint: rodio::Endpoint,
+    music: music::State,
+    effect: effect::State,
+}
+
+impl State {
+    fn init(setting: &Setting) -> Result<State,InitError> {
+        let endpoint = try!(rodio::get_default_endpoint().ok_or(InitError::NoDefaultEndpoint));
+
+        Ok(State {
+            global_volume: setting.global_volume,
+            effect: try!(effect::State::init(setting, &endpoint)),
+            music: try!(music::State::init(setting)),
+            endpoint: endpoint,
+        })
+    }
+    fn reset(&mut self, setting: &Setting) -> Result<(),InitError> {
+        self.global_volume = setting.global_volume;
+        try!(self.music.reset(setting));
+        try!(self.effect.reset(setting, &self.endpoint));
+
+        Ok(())
+    }
+}
+
 /// init the audio player
 pub fn init(setting: &Setting) -> Result<(), InitError> {
     unsafe {
         if !RAW_STATE.is_null() {
             return Err(InitError::DoubleInit);
         }
-        *RAW_STATE = RwLock::new(try!(State::init(setting)));
+        let box_state = Box::new(RwLock::new(try!(State::init(setting))));
+        RAW_STATE = Box::into_raw(box_state);
+
         Ok(())
     }
 }
@@ -140,29 +151,22 @@ pub fn reset(setting: &Setting) -> Result<(),InitError> {
     }
 }
 
-struct State {
-    global_volume: f32,
-    endpoint: rodio::Endpoint,
-    music: music::State,
-    effect: effect::State,
+/// set the global volume
+pub fn set_global_volume(v: f32) {
+    let mut state = unsafe { (*RAW_STATE).write().unwrap() };
+    state.global_volume = v;
+    update_volume(&mut *state);
 }
 
-impl State {
-    fn init(setting: &Setting) -> Result<State,InitError> {
-        let endpoint = try!(rodio::get_default_endpoint().ok_or(InitError::NoDefaultEndpoint));
-
-        Ok(State {
-            global_volume: setting.global_volume,
-            effect: try!(effect::State::init(setting, &endpoint)),
-            music: try!(music::State::init(setting)),
-            endpoint: endpoint,
-        })
-    }
-    fn reset(&mut self, setting: &Setting) -> Result<(),InitError> {
-        self.global_volume = setting.global_volume;
-        try!(self.music.reset(setting));
-        try!(self.effect.reset(setting, &self.endpoint));
-
-        Ok(())
-    }
+#[inline]
+fn update_volume(state: &mut State) {
+    music::update_volume(state);
+    effect::update_volume(state);
 }
+
+/// return the global volume
+pub fn global_volume() -> f32 {
+    let state = unsafe { (*RAW_STATE).read().unwrap() };
+    state.global_volume
+}
+

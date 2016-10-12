@@ -6,7 +6,7 @@ use rodio::Source;
 
 use std::fs::File;
 use std::sync::atomic::AtomicBool;
-use std::sync::atomic::AtomicPtr;
+use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;
 use std::time::Duration;
@@ -27,7 +27,7 @@ struct Current {
 pub struct State {
     transition: MusicTransition,
     volume: f32,
-    final_volume: Arc<AtomicPtr<f32>>,
+    final_volume: Arc<AtomicUsize>,
     pause: Arc<AtomicBool>,
     sources: Vec<PathBuf>,
     current: Option<Current>,
@@ -47,7 +47,7 @@ impl State {
 
         Ok(State {
             transition: setting.music_transition,
-            final_volume: Arc::new(AtomicPtr::new(&mut (setting.music_volume * setting.global_volume))),
+            final_volume: Arc::new(AtomicUsize::new((setting.music_volume * setting.global_volume * 10_000f32) as usize)),
             pause: Arc::new(AtomicBool::new(false)),
             volume: setting.music_volume,
             sources: sources,
@@ -66,14 +66,13 @@ impl State {
 pub fn set_volume(v: f32) {
     let mut state = unsafe { (*RAW_STATE).write().unwrap() };
     state.music.volume = v;
-    update_volume();
+    update_volume(&mut *state);
 }
 
 #[doc(hidden)]
 #[inline]
-pub fn update_volume() {
-    let state = unsafe { (*RAW_STATE).read().unwrap() };
-    state.music.final_volume.store(&mut (state.music.volume * state.global_volume), Relaxed);
+pub fn update_volume(state: &mut super::State) {
+    state.music.final_volume.store((state.music.volume * state.global_volume * 10_000f32) as usize, Relaxed);
 }
 
 /// return the volume of the music
@@ -83,13 +82,16 @@ pub fn volume() -> f32 {
 }
 
 /// play the music
-#[inline]
 pub fn play(music: usize) {
+    let mut state = unsafe { (*RAW_STATE).write().unwrap() };
+    play_inner(music, &mut state);
+}
+
+#[inline]
+fn play_inner(music: usize, state: &mut super::State) {
     use self::MusicTransition::*;
 
-    let mut state = unsafe { (*RAW_STATE).write().unwrap() };
-
-    stop();
+    stop_inner(state);
 
     let fade_out = Arc::new(AtomicBool::new(false));
     let sink = Sink::new(&state.endpoint);
@@ -159,10 +161,13 @@ pub fn is_paused() -> bool {
 }
 
 /// stop the music
-#[inline]
 pub fn stop() {
     let mut state = unsafe { (*RAW_STATE).write().unwrap() };
+    stop_inner(&mut state);
+}
 
+#[inline]
+fn stop_inner(state: &mut super::State) {
     if let Some(current) = state.music.current.take() {
         current.fade_out.store(true,Relaxed);
         current.sink.detach();

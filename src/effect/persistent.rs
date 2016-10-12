@@ -52,10 +52,10 @@ pub fn clear_positions_for_all() {
 /// moment of this call
 pub fn update_volume(effect: usize) {
     let state = unsafe { (*RAW_STATE).read().unwrap() };
-    let mut volume = state.effect.persistent_positions[effect].iter()
+    let volume = state.effect.persistent_positions[effect].iter()
         .fold(0f32, |acc, &pos| acc + state.effect.distance_model.distance(pos,state.effect.listener));
 
-    state.effect.persistent_final_volumes[effect].store(&mut volume, Relaxed);
+    state.effect.persistent_final_volumes[effect].store((volume * 10_000f32) as usize, Relaxed);
 }
 
 /// update the volume of all effect
@@ -63,9 +63,9 @@ pub fn update_volume_for_all() {
     let state = unsafe { (*RAW_STATE).read().unwrap() };
 
     for (positions,final_volume) in state.effect.persistent_positions.iter().zip(state.effect.persistent_final_volumes.iter()) {
-        let mut volume = positions.iter()
+        let volume = positions.iter()
             .fold(0f32, |acc, &pos| acc + state.effect.distance_model.distance(pos,state.effect.listener));
 
-        final_volume.store(&mut volume, Relaxed);
+        final_volume.store((volume * 10_000f32) as usize, Relaxed);
     }
 }
