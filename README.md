@@ -1,16 +1,10 @@
 # baal [![](http://meritbadge.herokuapp.com/baal)](https://crates.io/crates/baal)
 
-BAsic Audio Library
+BAsic Audio Library build on top of [rodio](https://crates.io/crates/rodio)
 
-in early developpement
+## [DOCUMENTATION](https://docs.rs/crate/baal/0.4.2)
 
-TODO link to docs.rs
-
-[DOCUMENTATION]()
-
-## Features
-
-TODO
+See the documentation for usage.
 
 ## License
 

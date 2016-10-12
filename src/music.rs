@@ -60,13 +60,14 @@ impl State {
 pub fn set_volume(v: f32) {
     let mut state = unsafe { (*RAW_STATE).write().unwrap() };
     state.music.volume = v;
-    state.music.final_volume.store(&mut (state.music.volume * state.global_volume), Relaxed);
+    update_volume();
 }
 
 #[doc(hidden)]
 #[inline]
 pub fn update_volume() {
-    unimplemented!();
+    let state = unsafe { (*RAW_STATE).read().unwrap() };
+    state.music.final_volume.store(&mut (state.music.volume * state.global_volume), Relaxed);
 }
 
 /// return the volume of the music
@@ -145,6 +146,12 @@ pub fn resume() {
     state.music.pause.store(false,Relaxed);
 }
 
+/// return whereas music is paused
+pub fn is_paused() -> bool {
+    let state = unsafe { (*RAW_STATE).read().unwrap() };
+    state.music.pause.load(Relaxed)
+}
+
 /// stop the music
 #[inline]
 pub fn stop() {
@@ -160,12 +167,6 @@ pub fn stop() {
 pub fn is_stopped() -> bool {
     let state = unsafe { (*RAW_STATE).read().unwrap() };
     state.music.current.is_none()
-}
-
-/// return whereas music is paused
-pub fn is_paused() -> bool {
-    let state = unsafe { (*RAW_STATE).read().unwrap() };
-    state.music.pause.load(Relaxed)
 }
 
 /// return the current type of transition

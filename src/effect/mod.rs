@@ -3,67 +3,154 @@
 //! be careful that `set_volume`, `set_listener`, `set_distance_model`
 //! only affect future short sound effects
 
+pub mod persistent;
+pub mod short;
+
 use rodio::decoder::Decoder;
 use rodio::Sink;
+use rodio::Endpoint;
 use rodio::Source;
+use rodio::source::Buffered;
 
 use std::fs::File;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicPtr;
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;
-use std::time::Duration;
-use std::path::PathBuf;
 
 use super::InitError;
 use super::RAW_STATE;
 use super::Setting;
 use super::source;
 
+#[doc(hidden)]
 pub struct State {
     listener: [f32;3],
     distance_model: DistanceModel,
-    effect_volume: f32,
-    // final_volume: Arc<AtomicPtr<f32>>,
-    // pause: Arc<AtomicBool>,
-    // persistent_effect_positions: Vec<Vec<[f32;3]>>,
-    // persistent_mute: bool,
+    volume: f32,
+    final_volume: Arc<AtomicPtr<f32>>,
+    pause: Arc<AtomicBool>,
+    persistent_positions: Vec<Vec<[f32;3]>>,
+    persistent_final_volumes: Vec<Arc<AtomicPtr<f32>>>,
+    _persistent_sinks: Vec<Sink>,
+    short_sinks: Vec<Sink>,
+    short_sources: Vec<Buffered<Decoder<File>>>,
 }
+impl State {
+    #[doc(hidden)]
+    pub fn init(setting: &Setting, endpoint: &Endpoint) -> Result<State,InitError> {
+        let pause = Arc::new(AtomicBool::new(false));
+        let final_volume = Arc::new(AtomicPtr::new(&mut (setting.effect_volume * setting.global_volume)));
 
-#[doc(hidden)]
-pub fn update_volume() {
-    //TODO
+        let mut persistent_final_volumes = vec!();
+        let mut persistent_positions = vec!();
+        let mut persistent_sinks = vec!();
+
+        for source in &setting.persistent_effects {
+            let p_final_volume = Arc::new(AtomicPtr::new(&mut 0f32));
+
+            let file = try!(File::open(source.clone()).map_err(|e| InitError::FileOpenError(source.clone(), e)));
+            let source = try!(Decoder::new(file).map_err(|e| InitError::DecodeError(source.clone(), e)));
+            let source = source::amplify_ctrl(source, p_final_volume.clone());
+            let source = source::amplify_ctrl(source, final_volume.clone());
+            let source = source::play_pause_ctrl(source, pause.clone());
+
+            let sink = Sink::new(endpoint);
+            sink.append(source);
+
+            persistent_positions.push(vec!());
+            persistent_final_volumes.push(p_final_volume);
+            persistent_sinks.push(sink);
+        }
+
+        let mut short_sources = vec!();
+
+        for source in &setting.short_effects {
+            let file = try!(File::open(source.clone()).map_err(|e| InitError::FileOpenError(source.clone(), e)));
+            let source = try!(Decoder::new(file).map_err(|e| InitError::DecodeError(source.clone(), e)));
+            let source = source.buffered();
+
+            short_sources.push(source);
+        }
+
+        Ok(State {
+            listener: [0f32;3],
+            distance_model: setting.distance_model.clone(),
+            pause: pause,
+            final_volume: final_volume,
+            volume: setting.effect_volume,
+
+            persistent_positions: persistent_positions,
+            persistent_final_volumes: persistent_final_volumes,
+            _persistent_sinks: persistent_sinks,
+
+            short_sinks: vec!(),
+            short_sources: short_sources
+        })
+    }
+    #[doc(hidden)]
+    pub fn reset(&mut self, setting: &Setting, endpoint: &Endpoint) -> Result<(),InitError> {
+        *self = try!(State::init(setting, endpoint));
+        Ok(())
+    }
 }
 
 /// set the volume of sound effects
 /// take effect for future sounds effects only
 pub fn set_volume(v: f32) {
     let mut state = unsafe { (*RAW_STATE).write().unwrap() };
-    state.effect_volume = v;
+    state.effect.volume = v;
+    update_volume();
 }
+
+#[doc(hidden)]
+#[inline]
+pub fn update_volume() {
+    let state = unsafe { (*RAW_STATE).read().unwrap() };
+    state.effect.final_volume.store(&mut (state.effect.volume * state.global_volume), Relaxed);
+}
+
 
 /// return the volume of sound effects
 pub fn volume() -> f32 {
     let state = unsafe { (*RAW_STATE).read().unwrap() };
-    state.effect_volume
+    state.effect.volume
+}
+
+/// pause all effects
+pub fn pause() {
+    let state = unsafe { (*RAW_STATE).read().unwrap() };
+    state.effect.pause.store(true,Relaxed);
+}
+
+/// resume all effects
+pub fn resume() {
+    let state = unsafe { (*RAW_STATE).read().unwrap() };
+    state.effect.pause.store(false,Relaxed);
+}
+
+/// return whereas effects are paused
+pub fn is_paused() -> bool {
+    let state = unsafe { (*RAW_STATE).read().unwrap() };
+    state.effect.pause.load(Relaxed)
 }
 
 /// set the position of the listener
 pub fn set_listener(pos: [f32;3]) {
     let mut state = unsafe { (*RAW_STATE).write().unwrap() };
-    state.listener = pos;
+    state.effect.listener = pos;
 }
 
 /// return the position of the listener
 pub fn listener() -> [f32;3] {
     let state = unsafe { (*RAW_STATE).read().unwrap() };
-    state.listener
+    state.effect.listener
 }
 
 /// set the distance model
 pub fn set_distance_model(d: DistanceModel) {
     let mut state = unsafe { (*RAW_STATE).write().unwrap() };
-    state.distance_model = d;
+    state.effect.distance_model = d;
 }
 
 /// distance model, used to compute sound effects volumes.

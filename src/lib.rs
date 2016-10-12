@@ -5,7 +5,7 @@
 extern crate rodio;
 
 pub mod music;
-// pub mod effect;
+pub mod effect;
 
 mod source;
 
@@ -16,7 +16,7 @@ use std::io;
 
 use rodio::decoder::DecoderError;
 
-// use effect::DistanceModel;
+use effect::DistanceModel;
 use music::MusicTransition;
 
 static mut RAW_STATE: *mut RwLock<State> = 0 as *mut RwLock<State>;
@@ -41,8 +41,8 @@ pub struct Setting {
     /// effect volume in [0,1]
     pub effect_volume: f32,
 
-    // /// distance model for effect volume computation
-    // pub distance_model: DistanceModel,
+    /// distance model for effect volume computation
+    pub distance_model: DistanceModel,
 
     /// the kind of transition between musics
     pub music_transition: MusicTransition,
@@ -144,6 +144,7 @@ struct State {
     global_volume: f32,
     endpoint: rodio::Endpoint,
     music: music::State,
+    effect: effect::State,
 }
 
 impl State {
@@ -151,14 +152,16 @@ impl State {
         let endpoint = try!(rodio::get_default_endpoint().ok_or(InitError::NoDefaultEndpoint));
 
         Ok(State {
-            endpoint: endpoint,
             global_volume: setting.global_volume,
+            effect: try!(effect::State::init(setting, &endpoint)),
             music: try!(music::State::init(setting)),
+            endpoint: endpoint,
         })
     }
     fn reset(&mut self, setting: &Setting) -> Result<(),InitError> {
         self.global_volume = setting.global_volume;
         try!(self.music.reset(setting));
+        try!(self.effect.reset(setting, &self.endpoint));
 
         Ok(())
     }
