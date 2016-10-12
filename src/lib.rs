@@ -1,4 +1,16 @@
-//! TODO
+//! baal (BAsic Audio Library) is build on top of [rodio](https://crates.io/crates/rodio)
+//!
+//! it allows to play three different kind of sounds:
+//!
+//! * short effects like for shoots
+//! * persistent effects like for fans and other ambiant sounds
+//! * musics
+//!
+//! due to rodio backend it support WAV and Vorbis audio format
+//!
+//! there is no spatialisation
+//!
+//! see the example and tests for usages
 
 #![warn(missing_docs)]
 
