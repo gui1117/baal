@@ -97,6 +97,7 @@ fn play_inner(music: usize, state: &mut super::State) {
     let sink = Sink::new(&state.endpoint);
 
     let source = Decoder::new(File::open(state.music.sources[music].clone()).unwrap()).unwrap();
+    let source = source.repeat_infinite();
     let source = match state.music.transition {
         Smooth(duration) => {
             let source = source::fade_out_ctrl(source, duration, fade_out.clone());

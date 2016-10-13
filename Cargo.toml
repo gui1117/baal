@@ -1,6 +1,6 @@
 [package]
 name = "baal"
-version = "0.5.0"
+version = "0.5.1"
 authors = ["thiolliere <guillaume.thiolliere@opmbx.org>"]
 license = "MIT OR Apache-2.0"
 description = "high level audio library"
@@ -10,5 +10,4 @@ readme = "README.md"
 keywords = ["audio","simple","game","basic","sound"]
 
 [dependencies]
-rustc-serialize = "0.3.0"
 rodio = "0.4.0"
