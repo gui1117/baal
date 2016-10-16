@@ -10,4 +10,4 @@ readme = "README.md"
 keywords = ["audio","simple","game","basic","sound"]
 
 [dependencies]
-rodio = "0.4.0"
+rodio = { git = "https://github.com/tomaka/rodio" }
