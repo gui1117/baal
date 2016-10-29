@@ -16,7 +16,6 @@ pub fn wait<I>(input: I, duration: Duration) -> Wait<I>
     }
 }
 
-/// Filter that modifies each sample by a given value.
 #[derive(Clone, Debug)]
 pub struct Wait<I> where I: Source, I::Item: Sample {
     input: I,

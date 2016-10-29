@@ -20,7 +20,6 @@ pub fn fade_out_ctrl<I>(input: I, duration: Duration, signal: Arc<AtomicBool>) -
     }
 }
 
-/// Filter that modifies each sample by a given value.
 #[derive(Clone, Debug)]
 pub struct FadeOutCtrl<I> where I: Source, I::Item: Sample {
     input: I,

@@ -16,7 +16,6 @@ pub fn play_pause_ctrl<I>(input: I, pause: Arc<AtomicBool>) -> PlayPauseCtrl<I>
     }
 }
 
-/// Filter that modifies each sample by a given value.
 #[derive(Clone, Debug)]
 pub struct PlayPauseCtrl<I> where I: Source, I::Item: Sample {
     input: I,

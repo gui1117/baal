@@ -16,7 +16,6 @@ pub fn amplify_ctrl<I>(input: I, factor: Arc<AtomicUsize>) -> AmplifyCtrl<I>
     }
 }
 
-/// Filter that modifies each sample by a given value.
 #[derive(Clone, Debug)]
 pub struct AmplifyCtrl<I> where I: Source, I::Item: Sample {
     input: I,
