@@ -27,8 +27,8 @@ struct Current {
 pub struct State {
     transition: MusicTransition,
     volume: f32,
-    final_volume: Arc<AtomicUsize>,
-    pause: Arc<AtomicBool>,
+    final_volume: f32,
+    pause: bool,
     sources: Vec<PathBuf>,
     current: Option<Current>,
 }
@@ -47,8 +47,8 @@ impl State {
 
         Ok(State {
             transition: setting.music_transition,
-            final_volume: Arc::new(AtomicUsize::new((setting.music_volume * setting.global_volume * 10_000f32) as usize)),
-            pause: Arc::new(AtomicBool::new(false)),
+            final_volume: setting.music_volume * setting.global_volume,
+            pause: false,
             volume: setting.music_volume,
             sources: sources,
             current: None,
@@ -93,39 +93,24 @@ fn play_inner(music: usize, state: &mut super::State) {
 
     stop_inner(state);
 
-    let fade_out = Arc::new(AtomicBool::new(false));
     let sink = Sink::new(&state.endpoint);
 
-    let source = Decoder::new(File::open(state.music.sources[music].clone()).unwrap()).unwrap();
-    let source = source.repeat_infinite();
-    let source = match state.music.transition {
-        Smooth(duration) => {
-            let source = source::fade_out_ctrl(source, duration, fade_out.clone());
-            let source = source.fade_in(duration);
-            let source = source::wait(source, duration);
-            source
-        },
-        Overlap(duration) => {
-            let source = source::fade_out_ctrl(source, duration, fade_out.clone());
-            let source = source.fade_in(duration);
-            let source = source::wait(source, Duration::new(0, 0));
-            source
-        }
-        Instant => {
-            let source = source::fade_out_ctrl(source, Duration::new(0, 0), fade_out.clone());
-            let source = source.fade_in(Duration::new(0, 0));
-            let source = source::wait(source, Duration::new(0, 0));
-            source
-        },
-    };
-    let source = source::amplify_ctrl(source, state.music.final_volume.clone());
-    let source = source::play_pause_ctrl(source, state.music.pause.clone());
+    let source = Decoder::new(File::open(state.music.sources[music].clone()).unwrap()).unwrap()
+        .repeat_infinite();
+
+// TODO: fade_out
+    let source = Box::new(match state.music.transition {
+        Smooth(duration) => source.fade_in(duration).delay(duration),
+        Overlap(duration) => source.fade_in(duration),
+        Instant => source,
+    });
 
     sink.append(source);
 
     state.music.current = Some(Current {
         index: music,
         sink: sink,
+        souce: source,
         fade_out: fade_out,
     });
 }

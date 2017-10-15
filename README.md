@@ -4,7 +4,7 @@ BAsic Audio Library build on top of [rodio](https://crates.io/crates/rodio)
 
 ## [DOCUMENTATION](https://docs.rs/crate/baal)
 
-See the documentation for usage.
+See [the documentation](https://docs.rs/crate/baal) for usage.
 
 ## License
 
